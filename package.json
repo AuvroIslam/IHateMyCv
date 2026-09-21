@@ -1,0 +1,35 @@
+{
+  "name": "i-hate-my-cv",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "sync-pdf-worker": "node scripts/sync-pdf-worker.mjs",
+    "predev": "npm run sync-pdf-worker",
+    "prebuild": "npm run sync-pdf-worker",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "mammoth": "^1.12.3",
+    "nanoid": "^6.0.1",
+    "next": "16.3.5",
+    "openai": "^7.20.0",
+    "pdfjs-dist": "^6.3.289",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.5",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
