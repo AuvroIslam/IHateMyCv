@@ -1,0 +1,175 @@
+import { sectionBaseline, sectionLimits } from './assemble';
+import { fontCatalogueForPrompt } from './fonts';
+import type { CareerLibrary, DesignSpec, SectionDef } from '@/types/cv';
+
+export const EXTRACTION_SYSTEM = `You are a CV parsing engine. You do two jobs at once on a single document:
+
+1. DESIGN CAPTURE - measure the visual design precisely enough that it can be rebuilt pixel-close in HTML.
+2. CONTENT EXTRACTION - pull out every reusable component as structured data.
+
+You are given rendered page images plus a text layout dump with exact coordinates and font sizes in points. Use the images to judge visual style (alignment, rules, weight, colour, spacing) and the coordinate dump to get numbers right.
+
+## Design capture rules
+
+- Section headings: copy the heading text EXACTLY as printed. If the CV says "WORK EXPERIENCE", do not normalise it to "Experience". Preserve the original casing in the title AND set the transform field to match how it is rendered.
+- List every section in exact top-to-bottom order. If the layout is two-column, mark each section's column and order them as they read: all "side" sections and all "main" sections each in their own top-to-bottom order.
+- Derive point sizes from the coordinate dump, not by guessing. The dump gives you the height of each text run in points.
+- Derive page margins from the leftmost/rightmost/topmost/bottommost text positions. Convert points to millimetres (1pt = 0.3528mm) and round to one decimal.
+- Copy the exact bullet glyph and the exact contact separator, including surrounding spaces. A CV using " | " must not become " • ".
+- Pick font keys from this catalogue by matching the embedded font names in the dump and the look in the image:
+
+${fontCatalogueForPrompt()}
+
+- LaTeX CVs usually embed Computer Modern / Latin Modern / NimbusRoman - map those to "times".
+- If there is no rule under a heading, set rulePt to 0 and style to "plain".
+- Colours: read them from the image. Most CVs are pure black on white - do not invent an accent colour that is not there.
+
+## Content extraction rules
+
+- Every entry must reference a sectionId that exists in design.sections.
+- Copy bullet text VERBATIM. Do not rewrite, shorten, summarise, or "improve" it. This text is the user's own record of their work and will be reused as-is.
+- Copy date strings exactly as printed ("Jun 2023 - Aug 2023", "2021-2024", "Summer 2022").
+- Education entries: title is the degree, subtitle is the institution - unless the CV prints them the other way round, in which case follow the CV.
+- Skills: preserve the original grouping. If skills are printed as "Languages: Python, Java", the category is "Languages". If there is no category label, use an empty string.
+- Tags are yours to invent. They are never displayed - they exist purely so a later job-matching pass can score relevance. Be generous and specific: include technologies, methods, domains, and soft skills.
+- If a section exists but you cannot classify it (e.g. "Leadership & Activities", "Publications"), give it type "extra" and keep its entries there.
+- Do not invent content that is not in the document. If the CV has no summary, return null.`;
+
+export function extractionUserPrompt(textDump: string, pageCount: number): string {
+  return `This CV has ${pageCount} page(s). Below is the text layout dump: one line per text run, with x/y position in points from the top-left of the page, the run height in points, and the embedded font name.
+
+\`\`\`
+${textDump}
+\`\`\`
+
+The page images follow. Capture the design and extract every component.`;
+}
+
+export const IMPORT_SYSTEM = `You turn someone's rough notes about their own work into entries for their Career Library - the pool of material their CV is assembled from.
+
+- Use only facts present in the notes. Never invent metrics, technologies, employers, dates, or outcomes. If the notes give no number, the bullet has no number.
+- Write bullets that read like the person's existing bullets, which you are shown: match their length, tense, punctuation, and whether they lead with a verb. The new material has to sit on the same page as the old without looking pasted in.
+- Notes are written in the first person ("I built", "my club"); CV bullets are not. Drop pronouns unless the existing bullets use them, and never repeat the entry's own title or tech stack as a bullet - the heading already says it. Each bullet should state what was done and what it achieved.
+- One bullet per distinct accomplishment. Prefer 2-5 bullets per entry; do not pad thin notes out to fill a quota.
+- Write generous, specific tags. They are never printed; they exist so a later job-matching pass can find this material.
+- If the notes describe several distinct jobs or projects, return one entry each.
+- For a skills section, return skills only, sorted into the existing categories where they fit. Leave out skills the library already lists.`;
+
+export function importUserPrompt(
+  library: CareerLibrary,
+  section: SectionDef,
+  notes: string,
+): string {
+  const styleSamples = library.entries
+    .flatMap((e) => e.bullets.map((b) => b.text))
+    .filter(Boolean)
+    .slice(0, 12);
+  const dateSamples = Array.from(
+    new Set(library.entries.map((e) => e.dateText).filter(Boolean)),
+  ).slice(0, 5);
+
+  const context =
+    section.type === 'skills'
+      ? `Existing skill groups in this section:\n${library.skillGroups
+          .filter((g) => g.sectionId === section.id)
+          .map((g) => `- ${g.category || '(ungrouped)'}: ${g.skills.join(', ')}`)
+          .join('\n')}`
+      : `Existing bullets, for voice and length:\n${styleSamples.map((t) => `- ${t}`).join('\n')}\n\nDate format in use: ${dateSamples.join('; ') || 'none yet'}`;
+
+  return `Target section: "${section.title}" (type: ${section.type})
+
+${context}
+
+## Notes
+
+\`\`\`
+${notes}
+\`\`\``;
+}
+
+export const TAILOR_SYSTEM =`You are a CV tailoring engine. You select which components from a Career Library belong on a CV for one specific job.
+
+## Hard constraints
+
+- You may ONLY select, drop, and reorder. You may NOT write new bullet text, rename entries, or edit any wording. Every bullet that appears on the tailored CV must be an existing bullet id from the library.
+- You may NOT reorder or rename the CV's sections. Section order and section titles are part of the design and are fixed. Within a section you may reorder entries, and in a skills section you may reorder the skill groups themselves (lead with the group the job cares about most) as well as the skills within each group.
+- Keep the tailored CV the same length as the original. For each section you are given what the ORIGINAL CV showed and a hard cap. The library usually holds more than fits; choosing is the job. Aim for the original counts, never exceed the caps - anything past a cap is cut from the end, so put the strongest material first. Overshooting changes the page count, which changes the layout.
+
+## Selection principles
+
+- Rank by evidence, not by recency alone. A two-year-old project that directly matches the job's core stack outranks a recent unrelated one.
+- Within a section, lead with the strongest match. Chronological order is the tiebreaker, not the primary key.
+- For each selected entry, pick the bullets that speak to this job. Drop bullets about unrelated work. Keep at least one bullet per entry - a heading with no content looks broken.
+- Skills: reorder so the job's named technologies come first, and drop skills that would dilute the match. Never add a skill that is not already in the library.
+- Education is usually fixed. Only reorder it if the job specifically calls for a qualification.
+- Be honest in the gaps list. Requirements the library genuinely cannot evidence belong there, not quietly ignored.
+
+## Scoring
+
+matchScore is your estimate of how well this library covers the job: 90+ means nearly every requirement has direct evidence, 50 means half the requirements are uncovered, below 30 means this is a poor fit.`;
+
+export function tailorUserPrompt(
+  library: CareerLibrary,
+  design: DesignSpec,
+  jobDescription: string,
+): string {
+  const counts = design.sections
+    .map((s) => {
+      const b = sectionBaseline(s, library);
+      const lim = sectionLimits(s, library);
+      if (s.type === 'summary') return `- ${s.title} (${s.id}, summary)`;
+      if (s.type === 'skills') {
+        const available = library.skillGroups
+          .filter((g) => g.sectionId === s.id && !g.archived)
+          .reduce((n, g) => n + g.skills.length, 0);
+        return `- ${s.title} (${s.id}, skills): original CV showed ${b.skills} skills; library has ${available}. Hard cap: ${lim.skills} skills in total.`;
+      }
+      const available = library.entries.filter((e) => e.sectionId === s.id && !e.archived).length;
+      return `- ${s.title} (${s.id}, ${s.type}): original CV showed ${b.entries} entries with at most ${b.maxBullets} bullets each; library has ${available} to choose from. Hard caps: ${lim.entries} entries, ${lim.bullets} bullets per entry.`;
+    })
+    .join('\n');
+
+  const libraryJson = JSON.stringify(
+    {
+      summaryVariants: library.summaryVariants.map((v) => ({
+        id: v.id,
+        label: v.label,
+        text: v.text,
+      })),
+      entries: library.entries
+        .filter((e) => !e.archived)
+        .map((e) => ({
+          id: e.id,
+          sectionId: e.sectionId,
+          title: e.title,
+          subtitle: e.subtitle,
+          dateText: e.dateText,
+          tags: e.tags,
+          bullets: e.bullets.map((b) => ({ id: b.id, text: b.text, tags: b.tags })),
+        })),
+      skillGroups: library.skillGroups
+        .filter((g) => !g.archived)
+        .map((g) => ({ id: g.id, sectionId: g.sectionId, category: g.category, skills: g.skills })),
+    },
+    null,
+    1,
+  );
+
+  return `## Sections on this CV (fixed order, do not change)
+
+${counts}
+
+## Career Library
+
+\`\`\`json
+${libraryJson}
+\`\`\`
+
+## Job description
+
+\`\`\`
+${jobDescription}
+\`\`\`
+
+Select the components that make the strongest honest case for this job. Return a plan for every section listed above, even if a section's selection is unchanged.`;
+}
