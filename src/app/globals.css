@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f6f6f4;
+  --foreground: #16161a;
+  --panel: #ffffff;
+  --border: #e3e3df;
+  --muted: #6b6b73;
+  --accent: #c2410c;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-panel: var(--panel);
+  --color-line: var(--border);
+  --color-subtle: var(--muted);
+  --color-brand: var(--accent);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #131315;
+    --foreground: #ededed;
+    --panel: #1c1c20;
+    --border: #2f2f36;
+    --muted: #9a9aa4;
+    --accent: #fb923c;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+/* The CV sheet is always a light document regardless of app theme - it is a
+   print artefact, not part of the UI. */
+.cv-sheet {
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 28px rgb(0 0 0 / 0.1);
+  color-scheme: light;
+}
+
+.cv-scaler {
+  transform-origin: top left;
+}
+
+@media print {
+  html,
+  body {
+    background: #ffffff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-surface {
+    position: static !important;
+    display: block !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+  }
+
+  .cv-scaler {
+    transform: none !important;
+    width: auto !important;
+    height: auto !important;
+  }
+
+  .cv-sheet {
+    box-shadow: none !important;
+    margin: 0 !important;
+    /* min-height would force a trailing blank page on short CVs. */
+    min-height: 0 !important;
+  }
+}
