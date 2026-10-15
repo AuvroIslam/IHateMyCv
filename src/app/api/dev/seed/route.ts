@@ -2,7 +2,7 @@ import { handleRouteError, jsonError } from '@/lib/api';
 import { applyTailorPlan, buildBaseDocument, normalizeExtraction } from '@/lib/assemble';
 import { newId } from '@/lib/id';
 import { extractionSchema, tailorSchema } from '@/lib/schemas';
-import { mutateStore, savePageImages } from '@/lib/store';
+import { mutateStore, savePageImages, saveSourceFonts, saveSourceLayout } from '@/lib/store';
 import type { SavedCv } from '@/types/cv';
 import { DEMO_EXTRACTION, demoTailorPlan } from './fixture';
 
@@ -40,6 +40,8 @@ export async function POST() {
     // The fixture has no rendered pages, so clear any left from a real upload
     // rather than comparing the demo against someone else's CV.
     await savePageImages([]);
+    await saveSourceFonts([]);
+    await saveSourceLayout(null);
 
     await mutateStore((store) => {
       store.design = design;

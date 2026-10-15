@@ -40,8 +40,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# generated: copied from node_modules by scripts/sync-pdf-worker.mjs
+# generated: copied from node_modules by scripts/sync-assets.mjs
 /public/pdf.worker.min.mjs
+/public/fonts/cmu
 
 # local career library + generated CVs
 /data

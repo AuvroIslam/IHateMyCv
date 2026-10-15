@@ -83,7 +83,7 @@ export default function TailorPage() {
 
       {busy && (
         <p className="mt-3 text-xs text-subtle">
-          Usually 20–45 seconds. The model is ranking every component against the posting.
+          Usually 1–2 minutes. The model is ranking every component against the posting.
         </p>
       )}
 

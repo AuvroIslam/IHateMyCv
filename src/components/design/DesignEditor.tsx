@@ -14,7 +14,7 @@ import type { DesignSpec, SectionDef } from '@/types/cv';
 type FieldSpec =
   | { path: string; label: string; kind: 'number'; step: number; unit?: string }
   | { path: string; label: string; kind: 'select'; options: readonly string[] }
-  | { path: string; label: string; kind: 'font' | 'color' | 'text' | 'boolean' };
+  | { path: string; label: string; kind: 'font' | 'color' | 'text' | 'boolean' | 'order' };
 
 const n = (path: string, label: string, step: number, unit?: string): FieldSpec => ({
   path,
@@ -29,7 +29,11 @@ const sel = (path: string, label: string, options: readonly string[]): FieldSpec
   kind: 'select',
   options,
 });
-const other = (path: string, label: string, kind: 'font' | 'color' | 'text' | 'boolean'): FieldSpec => ({
+const other = (
+  path: string,
+  label: string,
+  kind: 'font' | 'color' | 'text' | 'boolean' | 'order',
+): FieldSpec => ({
   path,
   label,
   kind,
@@ -49,10 +53,12 @@ const GROUPS: { title: string; fields: FieldSpec[] }[] = [
   {
     title: 'Type',
     fields: [
+      other('font.useEmbedded', 'Use fonts from your PDF', 'boolean'),
       other('font.bodyFamily', 'Body font', 'font'),
       other('font.headingFamily', 'Heading font', 'font'),
       n('font.baseSizePt', 'Body size', 0.1, 'pt'),
       n('font.lineHeight', 'Line height', 0.01),
+      sel('font.textAlign', 'Paragraphs', ['left', 'justify']),
     ],
   },
   {
@@ -68,6 +74,11 @@ const GROUPS: { title: string; fields: FieldSpec[] }[] = [
       n('header.contactSizePt', 'Contact size', 0.1, 'pt'),
       other('header.contactSeparator', 'Contact separator', 'text'),
       sel('header.contactLayout', 'Contact layout', ['inline', 'stacked', 'two-line']),
+      other('header.contactOrder', 'Contact order', 'order'),
+      other('header.contactLabels.phone', 'Phone label', 'text'),
+      other('header.contactLabels.email', 'Email label', 'text'),
+      other('header.contactLabels.location', 'Location label', 'text'),
+      n('header.contactLabelWeight', 'Label weight', 100),
       other('header.ruleBelow', 'Rule below header', 'boolean'),
       n('header.spaceBelowPt', 'Space below', 0.5, 'pt'),
     ],
@@ -105,8 +116,17 @@ const GROUPS: { title: string; fields: FieldSpec[] }[] = [
     fields: [
       other('entry.bulletChar', 'Bullet glyph', 'text'),
       n('entry.bulletSizePt', 'Bullet text size', 0.1, 'pt'),
-      n('entry.bulletIndentPt', 'Indent', 0.5, 'pt'),
+      n('entry.bulletIndentPt', 'Bullet indent', 0.5, 'pt'),
+      n('entry.bulletTextIndentPt', 'Text indent', 0.5, 'pt'),
       n('entry.bulletSpacingPt', 'Gap between bullets', 0.25, 'pt'),
+    ],
+  },
+  {
+    title: 'Links',
+    fields: [
+      sel('entry.linksPlacement', 'Entry links', ['bullet', 'title-line', 'own-line']),
+      other('entry.linkSeparator', 'Between links', 'text'),
+      other('color.link', 'Link colour', 'color'),
     ],
   },
   {
@@ -175,7 +195,10 @@ export default function DesignEditor({
             </button>
             {expanded && (
               <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 border-t border-line p-3">
-                {group.fields.map((field) => (
+                {group.title === 'Type' && <EmbeddedFontsNote design={design} />}
+                {group.fields
+                  .filter((f) => f.path !== 'font.useEmbedded' || design.font.embedded.length > 0)
+                  .map((field) => (
                   <FieldControl
                     key={field.path}
                     field={field}
@@ -208,6 +231,40 @@ export default function DesignEditor({
   );
 }
 
+function EmbeddedFontsNote({ design }: { design: DesignSpec }) {
+  const faces = design.font.embedded;
+  if (faces.length === 0) {
+    return (
+      <p className="col-span-2 text-xs text-subtle">
+        No fonts could be taken from your file, so the closest match below is used. Upload a PDF
+        to use its exact fonts.
+      </p>
+    );
+  }
+  const roles = ['name', 'heading', 'body'] as const;
+  return (
+    <div className="col-span-2 rounded-md bg-foreground/4 p-2 text-xs text-subtle">
+      <p>
+        {design.font.useEmbedded
+          ? 'Using the exact fonts from your PDF. The fonts below fill in only for characters your original never used.'
+          : 'Using the closest match below instead of your PDF’s own fonts.'}
+      </p>
+      <ul className="mt-1.5 space-y-0.5">
+        {roles.map((role) => {
+          const sources = Array.from(new Set(faces.filter((f) => f.role === role).map((f) => f.source)));
+          return (
+            sources.length > 0 && (
+              <li key={role}>
+                <span className="capitalize">{role}</span>: <span className="font-mono">{sources.join(', ')}</span>
+              </li>
+            )
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 const CONTROL =
   'w-full rounded-md border border-line bg-background px-2 py-1 text-sm outline-none focus:border-foreground/50';
 
@@ -226,6 +283,48 @@ function FieldControl({
       {field.kind === 'number' && field.unit ? ` (${field.unit})` : ''}
     </span>
   );
+
+  if (field.kind === 'order') {
+    const order = Array.isArray(value) ? (value as string[]) : [];
+    const move = (i: number, delta: number) => {
+      const j = i + delta;
+      if (j < 0 || j >= order.length) return;
+      const next = [...order];
+      [next[i], next[j]] = [next[j], next[i]];
+      onChange(next);
+    };
+    return (
+      <div className="col-span-2">
+        {label}
+        <div className="flex flex-wrap gap-1">
+          {order.map((item, i) => (
+            <span
+              key={item}
+              className="inline-flex items-center gap-0.5 rounded border border-line bg-background py-0.5 pr-0.5 pl-2 text-xs"
+            >
+              {item}
+              <button
+                className="px-1 text-subtle hover:text-foreground disabled:opacity-30"
+                disabled={i === 0}
+                onClick={() => move(i, -1)}
+                aria-label={`Move ${item} earlier`}
+              >
+                ←
+              </button>
+              <button
+                className="px-1 text-subtle hover:text-foreground disabled:opacity-30"
+                disabled={i === order.length - 1}
+                onClick={() => move(i, 1)}
+                aria-label={`Move ${item} later`}
+              >
+                →
+              </button>
+            </span>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   if (field.kind === 'boolean') {
     return (

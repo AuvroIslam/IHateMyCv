@@ -33,6 +33,11 @@ export const designSpecSchema = z.object({
       .describe('Font key for the name and section headings; usually the same as bodyFamily'),
     baseSizePt: z.number().describe('Body text size in points, typically 9-11.5'),
     lineHeight: z.number().describe('Unitless line-height, typically 1.15-1.45'),
+    textAlign: z
+      .enum(['left', 'justify'])
+      .describe(
+        'justify when wrapped summary/bullet lines end flush at the right margin (typical of LaTeX, often with hyphenated words); left when their right edge is ragged',
+      ),
   }),
   color: z.object({
     text: hexColor,
@@ -40,8 +45,21 @@ export const designSpecSchema = z.object({
     accent: hexColor,
     muted: hexColor,
     rule: hexColor,
+    link: hexColor.describe('Colour of clickable text (links, email). Same as text if links are not coloured'),
   }),
   header: z.object({
+    contactTopPt: z.number().describe('Gap between the name and the contact line, in points'),
+    contactGapPt: z
+      .number()
+      .nullable()
+      .describe('Horizontal space on each side of the contact separator glyph, in points, from the SEPARATOR GAPS list; null if there is no separator'),
+    contactOrder: z
+      .array(z.enum(['phone', 'email', 'location', 'links']))
+      .describe('Order the contact items appear in, left to right. "links" is where the personal links go'),
+    contactLabels: z
+      .object({ phone: z.string(), email: z.string(), location: z.string() })
+      .describe('Label text printed before each value exactly as shown, e.g. "Phone:". Empty string when there is none'),
+    contactLabelWeight: z.number().describe('Font weight of those labels, 400 or 700'),
     align: z.enum(['left', 'center']),
     nameSizePt: z.number(),
     nameWeight: z.number().describe('CSS font-weight, 400/600/700'),
@@ -83,17 +101,57 @@ export const designSpecSchema = z.object({
     dateAlign: z.enum(['right', 'inline']),
     dateStyle: z.enum(['normal', 'italic']),
     dateSizePt: z.number(),
-    layout: z.enum(['title-left-date-right', 'title-then-subtitle', 'compact']),
+    layout: z
+      .enum(['title-left-date-right', 'title-then-subtitle', 'compact', 'org-title'])
+      .describe(
+        'org-title = "Company – Role" printed as ONE line in the title style with the date right and the location alone on the next line (store company in subtitle, role in title)',
+      ),
+    titleJoiner: z.string().describe('For org-title: exact text between company and role, e.g. " – "'),
+    subtitleGapPt: z.number().describe('Extra gap between the title row and the row below, beyond line spacing; usually 0'),
+    bulletsTopPt: z.number().describe('Extra gap between an entry heading and its first bullet; usually 0-3'),
     bulletChar: z.string().describe('Exact bullet glyph used by the original CV'),
-    bulletIndentPt: z.number(),
+    bulletIndentPt: z
+      .number()
+      .describe('Distance from the left margin to the bullet glyph, in points (glyph x minus margin x)'),
+    bulletTextIndentPt: z
+      .number()
+      .describe('Distance from the left margin to where bullet text starts, in points (text x minus margin x)'),
     bulletSizePt: z.number(),
-    bulletSpacingPt: z.number(),
+    bulletSpacingPt: z
+      .number()
+      .describe('Extra gap between consecutive bullets beyond normal line spacing; 0 when bullets are set solid'),
     spacingPt: z.number().describe('Vertical gap between consecutive entries'),
+    linksPlacement: z
+      .enum(['bullet', 'title-line', 'own-line'])
+      .describe(
+        'Where entry links are printed: bullet = as a final bullet row under the entry; title-line = after the title on the same line; own-line = on an unbulleted line under the heading. Use bullet if no entry has links',
+      ),
+    linkSeparator: z.string().describe('Exact text between two links of one entry, spaces included'),
+    linkGapPt: z
+      .number()
+      .nullable()
+      .describe('Horizontal space on each side of the separator between entry links, from SEPARATOR GAPS; null if none'),
+    groupLabel: z
+      .object({
+        weight: z.number(),
+        underline: z.boolean(),
+        sizePt: z.number(),
+        spaceBeforePt: z.number(),
+        spaceAfterPt: z.number(),
+      })
+      .describe('Style of sub-headings inside a section (e.g. "National"), if any; otherwise any sensible values'),
   }),
   skills: z.object({
-    layout: z.enum(['inline-categories', 'bullets', 'comma-list', 'pills']),
+    layout: z
+      .enum(['inline-categories', 'bullets', 'comma-list', 'pills', 'columns'])
+      .describe(
+        'columns = categories laid out in a grid of N columns, each category label on its own line followed by its items',
+      ),
     categoryWeight: z.number(),
     separator: z.string().describe('Separator between individual skills, e.g. ", "'),
+    lineGapPt: z.number().describe('Extra gap between skill lines or grid rows; usually 0-3'),
+    columns: z.number().describe('Number of columns for the columns layout; 1 otherwise'),
+    columnGapPt: z.number().describe('Gap between columns in points'),
   }),
   layout: z.object({
     type: z.enum(['single', 'two-column']),
@@ -112,6 +170,10 @@ export const designSpecSchema = z.object({
     .describe('Every section, in the exact top-to-bottom order of the original CV'),
 });
 
+const entryLinksSchema = z
+  .array(z.object({ label: z.string().describe('Link text as printed'), url: z.string() }))
+  .describe('Labelled links for this entry, e.g. Github / Live Link, with URLs from the LINKS list');
+
 const bulletSchema = z.object({
   text: z.string(),
   tags: z.array(z.string()).describe('3-8 lowercase skill/domain keywords this bullet evidences'),
@@ -129,7 +191,7 @@ export const extractionSchema = z.object({
       z.object({
         label: z.string().describe('Display text as printed, e.g. "github.com/jane"'),
         value: z.string(),
-        href: z.string().nullable(),
+        href: z.string().nullable().describe('Target URL from the LINKS list; null only if none exists'),
       }),
     ),
   }),
@@ -148,7 +210,12 @@ export const extractionSchema = z.object({
         .string()
         .nullable()
         .describe('End date as YYYY-MM for sorting; "9999-12" if ongoing/present'),
-      link: z.string().nullable(),
+      link: z.string().nullable().describe('URL the title itself links to, if the title is clickable'),
+      links: entryLinksSchema,
+      group: z
+        .string()
+        .nullable()
+        .describe('Sub-heading this entry is printed under inside its section (e.g. "National"), verbatim; null if none'),
       bullets: z.array(bulletSchema),
       tags: z.array(z.string()).describe('5-12 lowercase keywords describing this entry'),
     }),
@@ -159,7 +226,10 @@ export const extractionSchema = z.object({
       category: z
         .string()
         .describe('Category label as printed, e.g. "Languages". Empty string if ungrouped'),
-      skills: z.array(z.string()),
+      skills: z
+        .array(z.string())
+        .describe('Items as printed. When a category is a bulleted list, each bullet line is one item, verbatim'),
+      list: z.boolean().describe('True when this category prints its items as bullets rather than one line'),
     }),
   ),
   pageCount: z.number(),
@@ -180,6 +250,9 @@ export const importSchema = z.object({
           .describe('Date range in the same format the existing entries use; null if unknown'),
         sortDate: z.string().nullable().describe('End date as YYYY-MM; "9999-12" if ongoing'),
         link: z.string().nullable(),
+        links: z
+          .array(z.object({ label: z.string(), url: z.string() }))
+          .describe('Links given in the notes (repo, demo, store page) with short labels like "Github"; empty if none'),
         bullets: z.array(bulletSchema),
         tags: z.array(z.string()).describe('5-12 lowercase keywords describing this entry'),
       }),

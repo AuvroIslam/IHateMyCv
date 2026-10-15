@@ -48,6 +48,23 @@ body {
   transform-origin: top left;
 }
 
+/* The hidden flow CvPreview measures blocks in. Laid out but never seen. */
+.cv-measure {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Space before a heading is for separating it from what is above; at the top
+   of a page there is nothing above, and LaTeX drops it there too. */
+.cv-page + .cv-page .cv-page-body > .cv-block:first-child > * {
+  margin-top: 0 !important;
+}
+
 @media print {
   html,
   body {
@@ -80,5 +97,15 @@ body {
     margin: 0 !important;
     /* min-height would force a trailing blank page on short CVs. */
     min-height: 0 !important;
+  }
+
+  /* Each laid-out page is exactly one sheet of paper. */
+  .cv-page {
+    overflow: hidden;
+    break-after: page;
+  }
+
+  .cv-page:last-child {
+    break-after: auto;
   }
 }

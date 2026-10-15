@@ -20,9 +20,27 @@ You are given rendered page images plus a text layout dump with exact coordinate
 
 ${fontCatalogueForPrompt()}
 
-- LaTeX CVs usually embed Computer Modern / Latin Modern / NimbusRoman - map those to "times".
+- Match fonts on the embedded names first. LaTeX's default face (CMR10, CMBX10, SFRM1000, LMRoman...) is "computer-modern" - it is much wider than Times, so mapping it to "times" breaks every line. Only NimbusRoman / Times names map to "times".
 - If there is no rule under a heading, set rulePt to 0 and style to "plain".
-- Colours: read them from the image. Most CVs are pure black on white - do not invent an accent colour that is not there.
+- Colours: read them from the image. Most CVs are pure black on white - do not invent an accent colour that is not there. Links are often coloured differently from body text; capture that in color.link.
+- Measure horizontal positions from the x coordinates, relative to the left margin: bulletIndentPt is where the bullet glyph sits, bulletTextIndentPt is where the bullet's text starts. Check textAlign against the image: justified text has a straight right edge.
+- Header contact line: record the order items appear in (contactOrder), any label printed before a value such as "Phone:" or "Email:" (contactLabels), and the separator between items with all of its spaces.
+- Separators: the dump lists measured space around each standalone separator glyph. Copy those numbers into contactGapPt and linkGapPt rather than padding the separator string with spaces.
+- Spacing numbers are refined automatically afterwards by measuring the rebuild, so get them close and spend your effort on structure: which layout each part uses, what belongs together, and exact wording.
+
+## Structure to watch for
+
+- Sub-headings inside a section (e.g. "National" and "International" splitting Achievements) are NOT entries and NOT locations. Put the label in each entry's group field and style it in entry.groupLabel.
+- If entries print as "Company – Role" on one bold line with the date on the right and the location alone underneath, use layout "org-title" with the company in subtitle and the role in title.
+- Skills laid out as a grid of categories (each label on its own line, items below) are layout "columns" with the column count. Set list=true for a category whose items print as bullets, and then each bullet line is one item, verbatim.
+
+## Links
+
+The dump lists every clickable area with the text under it and its target URL. Printed CVs hide URLs behind labels like "LinkedIn", "Github" or "Live Link", so this list is the only source of them.
+- Personal links (LinkedIn, GitHub, portfolio): set href from the matching LINKS entry.
+- A row under an entry made only of link labels (e.g. "Github • Live Link") is NOT a bullet. Put each label into that entry's links with its URL - match by y position, the row belongs to the entry above it - and set design.entry.linksPlacement to how such rows are printed.
+- If the title itself is the clickable text, put its URL in the entry's link field instead.
+- Never invent a URL. A label with no LINKS entry keeps an empty url.
 
 ## Content extraction rules
 
@@ -36,7 +54,7 @@ ${fontCatalogueForPrompt()}
 - Do not invent content that is not in the document. If the CV has no summary, return null.`;
 
 export function extractionUserPrompt(textDump: string, pageCount: number): string {
-  return `This CV has ${pageCount} page(s). Below is the text layout dump: one line per text run, with x/y position in points from the top-left of the page, the run height in points, and the embedded font name.
+  return `This CV has ${pageCount} page(s). Below is the text layout dump: one line per text run, with x/y position in points from the top-left of the page, the run height in points, and the embedded font name. After each page comes the list of clickable links on it, if any.
 
 \`\`\`
 ${textDump}

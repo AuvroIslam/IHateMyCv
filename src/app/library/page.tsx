@@ -315,6 +315,7 @@ export default function LibraryPage() {
                         id,
                         sectionId: section.id,
                         title: '',
+                        links: [],
                         bullets: [{ id: newId(), text: '', tags: [] }],
                         tags: [],
                         archived: false,

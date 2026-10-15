@@ -9,6 +9,9 @@
  * has to deal with text and base64.
  */
 
+import type { SourceLayout, UploadedFont } from '@/types/cv';
+import { remapFontToUnicode, unicodeCoverage } from './font-remap';
+
 export interface ParsedUpload {
   kind: 'pdf' | 'docx' | 'txt';
   fileName: string;
@@ -18,9 +21,28 @@ export interface ParsedUpload {
   rawText: string;
   /** Base64 page renders (no data: prefix) for the vision pass. */
   images: { mediaType: string; data: string }[];
+  /** The PDF's embedded fonts, remapped so the browser can type with them. */
+  fonts: UploadedFont[];
+  /** Where every line sat on the original, for auto-alignment. Null without layout info. */
+  layout: SourceLayout | null;
+}
+
+/**
+ * Bold/italic from a PDF font name. LaTeX's names are terse (CMBX10 is bold
+ * extended, CMTI10 text italic, CMSL slanted), so plain "bold"/"italic"
+ * matching misses every one of them.
+ */
+export function fontFlags(name: string) {
+  const n = name.replace(/^[A-Z]{6}\+/, '');
+  return {
+    bold: /bold|black|heavy|semib|demi|[-_,]b\b|^cmbx|^cmb\d|^sfbx|^cmssbx|^sfsx|^lmroman\w*-bold/i.test(n),
+    italic: /italic|oblique|[-_,]i\b|^cmti|^cmbxti|^cmsl|^cmbxsl|^sfti|^sfsl|^sfbi|^cmssi/i.test(n),
+  };
 }
 
 const MAX_VISION_PAGES = 3;
+/** Share of a font's own characters it must draw after remapping to be used. */
+const MIN_FONT_COVERAGE = 0.9;
 const MAX_DUMP_LINES_PER_PAGE = 260;
 
 type PdfModule = typeof import('pdfjs-dist');
@@ -38,8 +60,10 @@ async function loadPdfjs(): Promise<PdfModule> {
   return pdfjsPromise;
 }
 
-interface Run {
+export interface Run {
   x: number;
+  /** Exact end of the run: pdf.js reports each run's advance width. */
+  xEnd: number;
   y: number;
   size: number;
   font: string;
@@ -59,15 +83,23 @@ export async function parseUpload(file: File): Promise<ParsedUpload> {
 async function parsePdf(file: File): Promise<ParsedUpload> {
   const pdfjs = await loadPdfjs();
   const buf = await file.arrayBuffer();
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;
+  // fontExtraProperties keeps each font's code -> Unicode maps, which the
+  // remapping below needs.
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(buf), fontExtraProperties: true }).promise;
 
   const dumpParts: string[] = [];
   const rawParts: string[] = [];
   const images: ParsedUpload['images'] = [];
+  const fontUse = new Map<string, FontUse>();
+  const layout: SourceLayout = { pages: [] };
 
   for (let pageNo = 1; pageNo <= doc.numPages; pageNo++) {
     const page = await doc.getPage(pageNo);
     const viewport = page.getViewport({ scale: 1 });
+    // Loads the page's fonts. Without this, font names resolve only after a
+    // render, so page 1 reached the model as ids like "g_d0_f1" instead of
+    // "CMR10" - leaving it nothing to match the typeface on.
+    await page.getOperatorList();
     const content = await page.getTextContent();
 
     const runs: Run[] = [];
@@ -76,15 +108,19 @@ async function parsePdf(file: File): Promise<ParsedUpload> {
       const t = item.transform as number[];
       const size = Math.hypot(t[2], t[3]) || item.height || 0;
       const fontName = resolveFontName(page, item.fontName);
+      // Through the viewport rather than `height - y`, so pages whose box does
+      // not start at 0,0 still line up with the link rectangles below.
+      const [vx, vy] = viewport.convertToViewportPoint(t[4], t[5]) as [number, number];
       runs.push({
-        x: round(t[4]),
-        y: round(viewport.height - t[5]),
+        x: round(vx),
+        xEnd: round(vx + (item.width || 0)),
+        y: round(vy),
         size: round(size),
         font: fontName,
         text: item.str,
-        bold: /bold|black|heavy|semib|[-_]b\b|medi/i.test(fontName),
-        italic: /italic|oblique|[-_]i\b/i.test(fontName),
+        ...fontFlags(fontName),
       });
+      recordFontUse(fontUse, page, item.fontName, round(size), item.str);
     }
 
     const lines = groupIntoLines(runs);
@@ -103,6 +139,34 @@ async function parsePdf(file: File): Promise<ParsedUpload> {
       dumpParts.push(`... ${lines.length - MAX_DUMP_LINES_PER_PAGE} more lines on this page`);
     }
 
+    const gaps = lines.flatMap((l) => separatorGaps(l).map((g) => ({ ...g, y: l.y })));
+    if (gaps.length) {
+      dumpParts.push(`SEPARATOR GAPS ON PAGE ${pageNo} (measured space either side of each standalone separator, in pt):`);
+      for (const g of gaps) dumpParts.push(`y=${g.y} "${g.glyph}" left=${g.left} right=${g.right}`);
+    }
+
+    layout.pages.push({
+      width: round(viewport.width),
+      height: round(viewport.height),
+      lines: lines.map((l) => ({
+        x: l.x,
+        xEnd: round(l.endX),
+        y: l.y,
+        size: l.size,
+        text: l.text,
+        runs: l.runs.map((r) => ({ x: r.x, xEnd: r.xEnd, text: r.text })),
+      })),
+    });
+
+    // URLs live in link annotations laid over the text, not in the text
+    // itself, so "LinkedIn" or "Live Link" arrive with no target unless they
+    // are paired up here.
+    const links = await extractLinks(page, viewport, runs);
+    if (links.length) {
+      dumpParts.push(`LINKS ON PAGE ${pageNo} (clickable text -> target; y = baseline of that text):`);
+      for (const l of links) dumpParts.push(`y=${l.y} x=${l.x} "${l.text}" -> ${l.url}`);
+    }
+
     if (pageNo <= MAX_VISION_PAGES) {
       images.push(await renderPage(page, viewport));
     }
@@ -116,7 +180,111 @@ async function parsePdf(file: File): Promise<ParsedUpload> {
     textDump: dumpParts.join('\n'),
     rawText: rawParts.join('\n\n'),
     images,
+    fonts: packFonts(fontUse),
+    layout,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Embedded fonts
+
+interface PdfFont {
+  name?: string;
+  data?: Uint8Array;
+  mimetype?: string;
+  isType3Font?: boolean;
+  missingFile?: boolean;
+  bold?: boolean;
+  italic?: boolean;
+  /** pdf.js's ToUnicodeMap / IdentityToUnicodeMap after crossing the worker boundary. */
+  toUnicode?: { _map?: (string | undefined)[]; firstChar?: number; lastChar?: number };
+  toFontChar?: number[];
+}
+
+interface FontUse {
+  font: PdfFont;
+  chars: Set<number>;
+  bySize: Map<number, number>;
+}
+
+function recordFontUse(use: Map<string, FontUse>, page: unknown, ref: string | undefined, size: number, text: string) {
+  if (!ref) return;
+  let entry = use.get(ref);
+  if (!entry) {
+    const objs = (page as { commonObjs?: { has(k: string): boolean; get(k: string): unknown } }).commonObjs;
+    if (!objs?.has(ref)) return;
+    entry = { font: objs.get(ref) as PdfFont, chars: new Set(), bySize: new Map() };
+    use.set(ref, entry);
+  }
+  let n = 0;
+  for (const ch of text) {
+    if (ch.trim()) {
+      entry.chars.add(ch.codePointAt(0)!);
+      n++;
+    }
+  }
+  entry.bySize.set(size, (entry.bySize.get(size) ?? 0) + n);
+}
+
+/** Unicode code point -> the code the converted font's cmap is keyed by. */
+function unicodeToFontCode(font: PdfFont): Map<number, number> {
+  const out = new Map<number, number>();
+  const toFontChar = font.toFontChar ?? [];
+  const map = font.toUnicode;
+  const add = (code: number, unicode: string | undefined) => {
+    // Multi-character entries are ligatures ("fi"); browsers only reach those
+    // through OpenType features, so they cannot be mapped here.
+    if (typeof unicode !== 'string' || Array.from(unicode).length !== 1) return;
+    const cp = unicode.codePointAt(0)!;
+    if (!out.has(cp)) out.set(cp, toFontChar[code] ?? code);
+  };
+  if (map?._map) {
+    map._map.forEach((u, code) => add(code, u));
+  } else if (typeof map?.firstChar === 'number' && typeof map.lastChar === 'number') {
+    for (let c = map.firstChar; c <= map.lastChar; c++) add(c, String.fromCodePoint(c));
+  }
+  return out;
+}
+
+/**
+ * Each font that survives remapping and covers its own text. Anything that
+ * fails is simply left out: the renderer then uses the catalogue match, which
+ * is exactly what happened before fonts were extracted at all.
+ */
+function packFonts(use: Map<string, FontUse>): UploadedFont[] {
+  const out: UploadedFont[] = [];
+  let i = 0;
+  for (const { font, chars, bySize } of use.values()) {
+    if (!font.data || font.isType3Font || font.missingFile || chars.size === 0) continue;
+    const result = remapFontToUnicode(new Uint8Array(font.data), unicodeToFontCode(font));
+    if (!result.ok) continue;
+
+    const covered = unicodeCoverage(result.font);
+    const hits = Array.from(chars).filter((c) => covered.has(c)).length;
+    if (hits / chars.size < MIN_FONT_COVERAGE) continue;
+
+    const name = (font.name ?? 'font').replace(/^[A-Z]{6}\+/, '');
+    const flags = fontFlags(name);
+    out.push({
+      id: `f${i++}`,
+      name,
+      bold: flags.bold || Boolean(font.bold),
+      italic: flags.italic || Boolean(font.italic),
+      // 'OTTO' marks CFF outlines; everything else pdf.js emits is TrueType.
+      format: String.fromCharCode(...result.font.subarray(0, 4)) === 'OTTO' ? 'otf' : 'ttf',
+      data: toBase64(result.font),
+      usage: Array.from(bySize, ([size, chars]) => ({ size, chars })),
+    });
+  }
+  return out;
+}
+
+export function toBase64(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(s);
 }
 
 function resolveFontName(page: unknown, fontRef: string | undefined): string {
@@ -136,32 +304,120 @@ function resolveFontName(page: unknown, fontRef: string | undefined): string {
   return fontRef;
 }
 
-/** Merge text runs sharing a baseline into readable lines. */
-function groupIntoLines(runs: Run[]) {
-  const sorted = [...runs].sort((a, b) => a.y - b.y || a.x - b.x);
-  const lines: (Run & { endX: number })[] = [];
-
-  for (const run of sorted) {
-    const last = lines[lines.length - 1];
-    if (last && Math.abs(last.y - run.y) <= 2.2) {
-      const gap = run.x - last.endX;
-      // A gap wider than a third of the font size reads as a real space.
-      const joiner = gap > run.size * 0.33 ? ' ' : '';
-      last.text += joiner + run.text;
-      last.endX = run.x + estimateWidth(run);
-      last.size = Math.max(last.size, run.size);
-      last.bold = last.bold || run.bold;
-      last.italic = last.italic || run.italic;
-    } else {
-      lines.push({ ...run, endX: run.x + estimateWidth(run) });
-    }
-  }
-
-  return lines.map((l) => ({ ...l, text: l.text.replace(/\s+/g, ' ').trim() })).filter((l) => l.text);
+interface FoundLink {
+  x: number;
+  y: number;
+  text: string;
+  url: string;
 }
 
-function estimateWidth(run: Run): number {
-  return run.text.length * run.size * 0.5;
+export async function extractLinks(
+  page: import('pdfjs-dist').PDFPageProxy,
+  viewport: import('pdfjs-dist').PageViewport,
+  runs: Run[],
+): Promise<FoundLink[]> {
+  let annotations: unknown[];
+  try {
+    annotations = await page.getAnnotations({ intent: 'display' });
+  } catch {
+    return [];
+  }
+
+  const found: FoundLink[] = [];
+  for (const raw of annotations) {
+    const a = raw as { subtype?: string; url?: string; unsafeUrl?: string; rect?: number[] };
+    const url = a.url ?? a.unsafeUrl;
+    if (a.subtype !== 'Link' || !url || !a.rect) continue;
+
+    // Into the same top-left space the text runs use.
+    const [x1, y1] = viewport.convertToViewportPoint(a.rect[0], a.rect[1]) as [number, number];
+    const [x2, y2] = viewport.convertToViewportPoint(a.rect[2], a.rect[3]) as [number, number];
+    const left = Math.min(x1, x2) - 2;
+    const right = Math.max(x1, x2) + 2;
+    const top = Math.min(y1, y2) - 2;
+    const bottom = Math.max(y1, y2) + 3;
+
+    const under = runs
+      .filter((r) => r.x >= left && r.x <= right && r.y >= top && r.y <= bottom)
+      .sort((p, q) => p.y - q.y || p.x - q.x);
+    const text = under.map((r) => r.text).join(' ').replace(/\s+/g, ' ').trim();
+
+    found.push({
+      x: round(under[0]?.x ?? left),
+      y: round(under[0]?.y ?? bottom),
+      text: text || '(no text under this link)',
+      url,
+    });
+  }
+
+  // Nearby duplicate rectangles (one per line of a wrapped link) collapse.
+  return found
+    .filter((l, i) => found.findIndex((m) => m.url === l.url && m.text === l.text && Math.abs(m.y - l.y) < 1) === i)
+    .sort((p, q) => p.y - q.y || p.x - q.x);
+}
+
+interface Line extends Run {
+  endX: number;
+  runs: Run[];
+}
+
+/**
+ * Merge text runs sharing a baseline into readable lines. Runs are clustered
+ * by baseline first and only then ordered left to right, so a run sitting a
+ * fraction of a point off the baseline cannot land out of order.
+ */
+function groupIntoLines(runs: Run[]): Line[] {
+  const byY = [...runs].sort((a, b) => a.y - b.y);
+  const clusters: Run[][] = [];
+  for (const run of byY) {
+    const current = clusters[clusters.length - 1];
+    if (current && run.y - current[0].y <= 2.2) current.push(run);
+    else clusters.push([run]);
+  }
+
+  return clusters
+    .map((cluster) => {
+      const ordered = cluster.sort((a, b) => a.x - b.x);
+      let text = '';
+      let endX = -Infinity;
+      for (const run of ordered) {
+        // Widths are exact, so any visible gap is a word space.
+        if (text && run.x - endX > run.size * 0.15 && !/\s$/.test(text) && !/^\s/.test(run.text)) text += ' ';
+        text += run.text;
+        endX = Math.max(endX, run.xEnd);
+      }
+      const main = ordered.reduce((a, b) => (b.text.length > a.text.length ? b : a));
+      return {
+        ...ordered[0],
+        y: main.y,
+        size: Math.max(...ordered.map((r) => r.size)),
+        font: main.font,
+        bold: ordered.some((r) => r.bold),
+        italic: ordered.some((r) => r.italic),
+        text: text.replace(/\s+/g, ' ').trim(),
+        endX,
+        runs: ordered,
+      };
+    })
+    .filter((l) => l.text);
+}
+
+const SEPARATOR = /^[•·|◦▪∙‧–—/]$/u;
+
+/**
+ * Space on each side of standalone separator glyphs ("•", "|") in a line.
+ * LaTeX sets these as measured space, so only coordinates can recover it.
+ */
+function separatorGaps(line: Line): { glyph: string; left: number; right: number }[] {
+  const out: { glyph: string; left: number; right: number }[] = [];
+  line.runs.forEach((run, i) => {
+    const glyph = run.text.trim();
+    if (!SEPARATOR.test(glyph) || i === 0 || i === line.runs.length - 1) return;
+    const prev = line.runs[i - 1];
+    const next = line.runs[i + 1];
+    out.push({ glyph, left: round(run.x - prev.xEnd), right: round(next.x - run.xEnd) });
+  });
+  return out;
 }
 
 async function renderPage(
@@ -205,12 +461,24 @@ async function parseDocx(file: File): Promise<ParsedUpload> {
     lines.push(`tag=${tag}${bold ? ' (bold)' : ''} | ${text}`);
   });
 
+  const links = Array.from(doc.body.querySelectorAll('a[href]'))
+    .map((a) => ({ text: a.textContent?.replace(/\s+/g, ' ').trim() ?? '', url: a.getAttribute('href') ?? '' }))
+    .filter((l) => l.url && !l.url.startsWith('#'));
+
   const rawText = doc.body.textContent?.replace(/\n{3,}/g, '\n\n').trim() ?? '';
   return {
     kind: 'docx',
     fileName: file.name,
     pageCount: Math.max(1, Math.ceil(rawText.length / 3200)),
-    textDump: ['--- DOCX STRUCTURE (no coordinates available) ---', ...lines].join('\n'),
+    fonts: [],
+    layout: null,
+    textDump: [
+      '--- DOCX STRUCTURE (no coordinates available) ---',
+      ...lines,
+      ...(links.length
+        ? ['LINKS (clickable text -> target, in document order):', ...links.map((l) => `"${l.text}" -> ${l.url}`)]
+        : []),
+    ].join('\n'),
     rawText,
     images: [],
   };
@@ -225,6 +493,8 @@ async function parseText(file: File): Promise<ParsedUpload> {
     textDump: ['--- PLAIN TEXT (no layout information available) ---', rawText].join('\n'),
     rawText,
     images: [],
+    fonts: [],
+    layout: null,
   };
 }
 

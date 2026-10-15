@@ -3,7 +3,10 @@ import { handleRouteError, jsonError } from '@/lib/api';
 import { buildBaseDocument, normalizeExtraction } from '@/lib/assemble';
 import { EXTRACTION_SYSTEM, extractionUserPrompt } from '@/lib/prompts';
 import { extractionSchema } from '@/lib/schemas';
-import { mutateStore, savePageImages } from '@/lib/store';
+import { assignFaces } from '@/lib/embedded-fonts';
+import { newId } from '@/lib/id';
+import { mutateStore, savePageImages, saveSourceFonts, saveSourceLayout } from '@/lib/store';
+import type { SourceLayout, UploadedFont } from '@/types/cv';
 
 export const maxDuration = 300;
 
@@ -13,7 +16,17 @@ interface ExtractBody {
   textDump?: string;
   rawText?: string;
   images?: { mediaType: string; data: string }[];
+  fonts?: UploadedFont[];
+  layout?: SourceLayout | null;
+  /** The original PDF, base64. Kept so alignment can be re-checked later. */
+  pdf?: string;
 }
+
+const MAX_PDF_B64 = 20_000_000;
+
+const MAX_FONTS = 24;
+/** A subset font is tens of KB; this only stops something absurd. */
+const MAX_FONT_B64 = 4_000_000;
 
 export async function POST(request: Request) {
   try {
@@ -36,6 +49,27 @@ export async function POST(request: Request) {
 
     const { design, library } = normalizeExtraction(parsed);
     const pageImages = await savePageImages(images);
+
+    // The PDF's own fonts. Client ids are replaced so nothing from the request
+    // ever becomes a file name.
+    const fonts: UploadedFont[] = (body.fonts ?? [])
+      .filter((f) => typeof f.data === 'string' && f.data.length < MAX_FONT_B64 && Array.isArray(f.usage))
+      .slice(0, MAX_FONTS)
+      .map((f) => ({
+        ...f,
+        id: newId(),
+        name: String(f.name ?? '').slice(0, 80),
+        format: f.format === 'ttf' ? 'ttf' : 'otf',
+        bold: Boolean(f.bold),
+        italic: Boolean(f.italic),
+      }));
+    await saveSourceFonts(fonts);
+    await saveSourceLayout(
+      body.layout ?? null,
+      typeof body.pdf === 'string' && body.pdf.length < MAX_PDF_B64 ? body.pdf : undefined,
+    );
+    design.font.embedded = assignFaces(fonts, design);
+    design.font.useEmbedded = design.font.embedded.length > 0;
 
     await mutateStore((store) => {
       store.design = design;

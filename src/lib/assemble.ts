@@ -4,6 +4,7 @@ import type {
   CareerLibrary,
   CvDocumentData,
   DesignSpec,
+  EntryLink,
   LibraryEntry,
   MatchReport,
   RenderedSection,
@@ -27,7 +28,14 @@ export function normalizeExtraction(raw: ExtractionResult): {
   library: CareerLibrary;
 } {
   const sections = dedupeSections(raw.design.sections);
-  const design: DesignSpec = { ...raw.design, sections } as DesignSpec;
+  // Embedded fonts are not the model's to choose; the extract route attaches
+  // them after it has saved the files.
+  const design: DesignSpec = {
+    ...raw.design,
+    font: { ...raw.design.font, embedded: [], useEmbedded: false },
+    sections,
+    aligned: false,
+  } as DesignSpec;
 
   const byId = new Map(sections.map((s) => [s.id, s]));
   const firstOfType = (type: SectionDef['type']) => sections.find((s) => s.type === type);
@@ -60,8 +68,10 @@ export function normalizeExtraction(raw: ExtractionResult): {
     dateText: nn(e.dateText),
     sortDate: nn(e.sortDate),
     link: nn(e.link),
+    links: cleanLinks(e.links),
+    group: nn(e.group),
     bullets: e.bullets
-      .filter((b) => b.text.trim())
+      .filter((b) => b.text.trim() && !isLinkRow(b.text, e.links))
       .map((b) => ({ id: newId(), text: b.text.trim(), tags: cleanTags(b.tags) })),
     tags: cleanTags(e.tags),
     archived: false,
@@ -73,6 +83,7 @@ export function normalizeExtraction(raw: ExtractionResult): {
       sectionId: fallbackFor(g.sectionId, 'skills'),
       category: g.category.trim(),
       skills: dedupe(g.skills.map((s) => s.trim()).filter(Boolean)),
+      list: g.list,
       archived: false,
     }))
     .filter((g) => g.skills.length > 0);
@@ -125,6 +136,7 @@ export function normalizeImport(
         dateText: nn(e.dateText),
         sortDate: nn(e.sortDate),
         link: nn(e.link),
+        links: cleanLinks(e.links),
         bullets: e.bullets
           .filter((b) => b.text.trim())
           .map((b) => ({ id: newId(), text: b.text.trim(), tags: cleanTags(b.tags) })),
@@ -201,6 +213,24 @@ function dedupeSections(input: SectionDef[]): SectionDef[] {
   });
 }
 
+function cleanLinks(links: { label: string; url: string }[]): EntryLink[] {
+  return links
+    .map((l) => ({ label: l.label.trim(), url: inferHref(l.url) ?? l.url.trim() }))
+    .filter((l) => l.label);
+}
+
+/**
+ * Backstop for the extraction prompt: a bullet that is nothing but the
+ * entry's own link labels ("Github • Live Link") is the links row read as
+ * text, and would print twice.
+ */
+function isLinkRow(text: string, links: { label: string }[]): boolean {
+  if (!links.length) return false;
+  let rest = text.toLowerCase();
+  for (const l of links) rest = rest.replace(l.label.toLowerCase().trim(), '');
+  return !/[a-z0-9]/.test(rest);
+}
+
 function titleCase(slug: string): string {
   return slug
     .split(/[-_\s]+/)
@@ -247,7 +277,7 @@ export function buildBaseDocument(library: CareerLibrary, design: DesignSpec): C
         entries: [],
         skillGroups: library.skillGroups
           .filter((g) => g.sectionId === def.id && !g.archived)
-          .map((g) => ({ groupId: g.id, category: g.category, skills: [...g.skills] })),
+          .map((g) => ({ groupId: g.id, category: g.category, skills: [...g.skills], list: g.list })),
       };
     }
     return {
@@ -276,6 +306,8 @@ function renderEntry(entry: LibraryEntry, bulletIds: string[], maxBullets = Infi
     location: entry.location,
     dateText: entry.dateText,
     link: entry.link,
+    links: (entry.links ?? []).map((l) => ({ ...l })),
+    group: entry.group,
     // A heading with no body reads as a rendering bug, so fall back to the
     // entry's own bullets when the plan selected none.
     bullets: (bullets.length ? bullets : entry.bullets.map((b) => b.text)).slice(0, maxBullets),
@@ -315,7 +347,7 @@ export function applyTailorPlan(
       const available = library.skillGroups.filter((g) => g.sectionId === def.id && !g.archived);
       const keepAll = () =>
         capSkills(
-          available.map((g) => ({ groupId: g.id, category: g.category, skills: [...g.skills] })),
+          available.map((g) => ({ groupId: g.id, category: g.category, skills: [...g.skills], list: g.list })),
           limits.skills,
         );
 
@@ -336,7 +368,7 @@ export function applyTailorPlan(
           const allowed = new Set(group.skills);
           const picked = sg.skills.filter((s) => allowed.has(s));
           if (picked.length === 0) return null;
-          return { groupId: group.id, category: group.category, skills: picked };
+          return { groupId: group.id, category: group.category, skills: picked, list: group.list };
         })
         .filter((g): g is NonNullable<typeof g> => g !== null);
 

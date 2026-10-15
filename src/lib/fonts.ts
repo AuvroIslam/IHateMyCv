@@ -18,14 +18,36 @@ export interface FontChoice {
   stack: string;
   /** Google Fonts family spec, or null for system fonts. */
   google: string | null;
+  /** Self-hosted stylesheet, for faces Google Fonts does not carry. */
+  css?: string;
   serif: boolean;
 }
 
 export const FONT_CHOICES: FontChoice[] = [
   {
+    key: 'computer-modern',
+    label: 'Computer Modern (LaTeX)',
+    matches:
+      'The LaTeX default serif. Embedded names like CMR10, CMBX10, CMTI10, SFRM1000, SFBX1000, CMU Serif, LMRoman10-Regular, LMRoman12-Bold (Latin Modern is the same design)',
+    stack: "'CMU Serif', 'Latin Modern Roman', 'Computer Modern', serif",
+    google: null,
+    css: '/fonts/cmu/cmu.css',
+    serif: true,
+  },
+  {
+    key: 'computer-modern-sans',
+    label: 'Computer Modern Sans (LaTeX)',
+    matches: 'LaTeX sans: CMSS10, CMSSBX10, SFSS1000, CMU Sans Serif, LMSans10-Regular',
+    stack: "'CMU Sans Serif', 'Latin Modern Sans', sans-serif",
+    google: null,
+    css: '/fonts/cmu/cmu.css',
+    serif: false,
+  },
+  {
     key: 'times',
-    label: 'Times / Latin Modern',
-    matches: 'Times New Roman, Times, Liberation Serif, Nimbus Roman, LaTeX default (Computer/Latin Modern Roman)',
+    label: 'Times',
+    matches:
+      'Times New Roman, Times, Liberation Serif, Nimbus Roman / NimbusRomNo9L (LaTeX with the times or mathptmx package), TeX Gyre Termes',
     stack: "'Tinos', 'Times New Roman', Times, serif",
     google: 'Tinos:ital,wght@0,400;0,700;1,400;1,700',
     serif: true,
@@ -164,17 +186,17 @@ export function fontChoice(key: string | undefined): FontChoice {
   return BY_KEY.get(key ?? '') ?? FONT_CHOICES[0];
 }
 
-/** Google Fonts stylesheet URL covering the families a design actually uses. */
-export function googleFontsUrl(...keys: (string | undefined)[]): string | null {
-  const specs = Array.from(
-    new Set(
-      keys
-        .map((k) => BY_KEY.get(k ?? '')?.google)
-        .filter((g): g is string => Boolean(g)),
-    ),
-  );
-  if (specs.length === 0) return null;
-  return `https://fonts.googleapis.com/css2?${specs.map((s) => `family=${s}`).join('&')}&display=swap`;
+/** Stylesheets covering the families a design actually uses. */
+export function fontStylesheets(...keys: (string | undefined)[]): string[] {
+  const choices = keys.map((k) => BY_KEY.get(k ?? '')).filter((c): c is FontChoice => Boolean(c));
+  const google = Array.from(new Set(choices.map((c) => c.google).filter(Boolean)));
+  const local = Array.from(new Set(choices.map((c) => c.css).filter((c): c is string => Boolean(c))));
+  return [
+    ...local,
+    ...(google.length
+      ? [`https://fonts.googleapis.com/css2?${google.map((s) => `family=${s}`).join('&')}&display=swap`]
+      : []),
+  ];
 }
 
 /** Compact catalogue injected into the extraction prompt. */

@@ -130,9 +130,10 @@ export function EntryCard({
                 onChange={(e) => patch({ location: e.target.value || undefined })}
               />
             </Field>
-            <Field label="Link">
+            <Field label="Title link" hint="Makes the title itself clickable">
               <Input
                 value={entry.link ?? ''}
+                placeholder="https://…"
                 onChange={(e) => patch({ link: e.target.value || undefined })}
               />
             </Field>
@@ -184,6 +185,52 @@ export function EntryCard({
               onClick={() => patch({ bullets: [...entry.bullets, { id: newId(), text: '', tags: [] }] })}
             >
               Add bullet
+            </Button>
+          </div>
+
+          <div>
+            <p className="mb-1 text-xs font-medium tracking-wide text-subtle uppercase">Links</p>
+            <p className="mb-2 text-xs text-subtle">
+              Printed as labels (e.g. Github, Live Link) and clickable in the exported PDF.
+            </p>
+            <div className="space-y-2">
+              {entry.links.map((link, i) => (
+                <div key={i} className="flex gap-2">
+                  <Input
+                    value={link.label}
+                    placeholder="Label"
+                    className="w-36 shrink-0"
+                    onChange={(e) =>
+                      patch({
+                        links: entry.links.map((l, j) => (j === i ? { ...l, label: e.target.value } : l)),
+                      })
+                    }
+                  />
+                  <Input
+                    value={link.url}
+                    placeholder="https://…"
+                    onChange={(e) =>
+                      patch({
+                        links: entry.links.map((l, j) => (j === i ? { ...l, url: e.target.value } : l)),
+                      })
+                    }
+                  />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => patch({ links: entry.links.filter((_, j) => j !== i) })}
+                  >
+                    ✕
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <Button
+              size="sm"
+              className="mt-2"
+              onClick={() => patch({ links: [...entry.links, { label: '', url: '' }] })}
+            >
+              Add link
             </Button>
           </div>
 

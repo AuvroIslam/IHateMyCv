@@ -7,6 +7,7 @@ import type {
   DesignSpec,
   LibraryEntry,
   SavedCv,
+  SourceLayout,
 } from '@/types/cv';
 
 export type { AppStateResponse, CvSummary } from '@/types/cv';
@@ -47,6 +48,8 @@ export const api = {
       '/api/library/import',
       { method: 'POST', body: JSON.stringify(body) },
     ),
+
+  getSourceLayout: () => call<{ layout: SourceLayout }>('/api/source/layout'),
 
   resetEverything: () => call<{ ok: true }>('/api/library', { method: 'DELETE' }),
 

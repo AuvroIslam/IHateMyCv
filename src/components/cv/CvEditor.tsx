@@ -323,6 +323,7 @@ function AddFromLibrary({
           location: entry.location,
           dateText: entry.dateText,
           link: entry.link,
+          links: entry.links.map((l) => ({ ...l })),
           bullets: entry.bullets.map((b) => b.text),
         });
       }}

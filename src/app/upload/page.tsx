@@ -2,13 +2,13 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from '@/components/AppProvider';
 import CvPreview from '@/components/cv/CvPreview';
 import { Button, ErrorNote, Panel, Spinner, cx } from '@/components/ui/kit';
 import { buildBaseDocument } from '@/lib/assemble';
 import { api } from '@/lib/client-api';
-import { parseUpload } from '@/lib/parse-client';
+import { parseUpload, toBase64 } from '@/lib/parse-client';
 import type { CareerLibrary, DesignSpec } from '@/types/cv';
 
 type Stage = 'idle' | 'parsing' | 'extracting' | 'done';
@@ -18,6 +18,28 @@ const STEPS = [
   { key: 'extracting', label: 'Learning the design', detail: 'Measuring the layout and cataloguing every component.' },
   { key: 'done', label: 'Career Library built', detail: 'Your CV is now a reusable set of parts.' },
 ] as const;
+
+/**
+ * Design capture is one long model call with no intermediate progress, so a
+ * running clock is the only honest signal that it has not stalled.
+ */
+function ExtractingNote() {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    const started = Date.now();
+    const timer = setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  return (
+    <p className="mt-4 text-xs text-subtle">
+      <span className="font-medium text-foreground tabular-nums">{clock}</span> · Usually 2–4
+      minutes. The model is measuring your layout from the page images and cataloguing every
+      component, and it only has to do this once. Keep this tab open.
+    </p>
+  );
+}
 
 export default function UploadPage() {
   const router = useRouter();
@@ -55,6 +77,9 @@ export default function UploadPage() {
           textDump: parsed.textDump,
           rawText: parsed.rawText,
           images: parsed.images,
+          fonts: parsed.fonts,
+          layout: parsed.layout,
+          pdf: parsed.kind === 'pdf' ? toBase64(new Uint8Array(await file.arrayBuffer())) : undefined,
         });
 
         setResult(extracted);
@@ -179,11 +204,7 @@ export default function UploadPage() {
               );
             })}
           </ol>
-          {stage === 'extracting' && (
-            <p className="mt-4 text-xs text-subtle">
-              This takes around 30–60 seconds. The model is reading your layout, not just your text.
-            </p>
-          )}
+          {stage === 'extracting' && <ExtractingNote />}
         </Panel>
       )}
 

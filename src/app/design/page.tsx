@@ -1,11 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '@/components/AppProvider';
 import CvPreview from '@/components/cv/CvPreview';
 import DesignEditor from '@/components/design/DesignEditor';
 import { Button, EmptyState, ErrorNote, Panel, Spinner, cx } from '@/components/ui/kit';
+import { autoAlign } from '@/lib/auto-align';
+import { api } from '@/lib/client-api';
 import type { DesignSpec } from '@/types/cv';
 
 type View = 'side' | 'overlay' | 'rebuilt';
@@ -36,6 +38,46 @@ export default function DesignPage() {
     const v = encodeURIComponent(source?.uploadedAt ?? '');
     return Array.from({ length: count }, (_, i) => `/api/source/pages/${i + 1}?v=${v}`);
   }, [source]);
+
+  const [aligning, setAligning] = useState<string | null>(null);
+  const [alignNote, setAlignNote] = useState<string | null>(null);
+
+  const runAlign = useCallback(
+    async (from: DesignSpec) => {
+      if (!originalDocument) return;
+      setAlignNote(null);
+      setAligning('Measuring your original…');
+      try {
+        const { layout } = await api.getSourceLayout();
+        const { design: fitted, report } = await autoAlign(from, originalDocument, layout, (round, r) =>
+          setAligning(`Round ${round}: typical gap error ${r.verticalError.toFixed(2)}pt…`),
+        );
+        setDraft(fitted);
+        await saveLibrary({ design: fitted });
+        setAlignNote(
+          `Aligned to your original: ${report.matched} of ${report.total} elements matched, typical spacing error ${report.verticalError.toFixed(2)}pt.`,
+        );
+      } catch (err) {
+        setAlignNote(
+          err instanceof Error && /No layout/.test(err.message)
+            ? 'Auto-align needs the positions from your PDF, which this upload predates. Re-upload the PDF to enable it.'
+            : `Auto-align failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+        );
+      } finally {
+        setAligning(null);
+      }
+    },
+    [originalDocument, saveLibrary],
+  );
+
+  // A fresh upload is aligned once, automatically.
+  const autoTried = useRef(false);
+  useEffect(() => {
+    if (design && !design.aligned && !autoTried.current && originalDocument && (source?.pageImages ?? 0) > 0) {
+      autoTried.current = true;
+      void runAlign(design);
+    }
+  }, [design, originalDocument, source, runAlign]);
 
   if (!design || !draft || !originalDocument) {
     return (
@@ -79,6 +121,10 @@ export default function DesignPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button onClick={() => void runAlign(draft)} disabled={Boolean(aligning) || !hasOriginal}>
+            {aligning && <Spinner />}
+            Auto-align
+          </Button>
           {dirty && (
             <Button variant="ghost" onClick={() => setDraft(structuredClone(design))}>
               Discard
@@ -90,6 +136,18 @@ export default function DesignPage() {
           </Button>
         </div>
       </div>
+
+      {(aligning || alignNote) && (
+        <Panel className="mt-4 flex items-center gap-2 px-3 py-2 text-sm">
+          {aligning ? (
+            <>
+              <Spinner /> {aligning}
+            </>
+          ) : (
+            <span className="text-subtle">{alignNote}</span>
+          )}
+        </Panel>
+      )}
 
       {error && (
         <div className="mt-4">

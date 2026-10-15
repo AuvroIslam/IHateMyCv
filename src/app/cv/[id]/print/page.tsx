@@ -16,6 +16,7 @@ export default function PrintPage() {
   const [design, setDesign] = useState<DesignSpec | null>(null);
   const [data, setData] = useState<CvDocumentData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [laidOut, setLaidOut] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,8 +37,9 @@ export default function PrintPage() {
   }, [id]);
 
   useEffect(() => {
-    if (!design || !data) return;
-    // Printing before the webfonts land would reflow the document mid-capture.
+    if (!design || !data || !laidOut) return;
+    // Printing before the webfonts land would reflow the document mid-capture,
+    // and pages are only final once measured with those fonts.
     let cancelled = false;
     const go = async () => {
       try {
@@ -45,16 +47,18 @@ export default function PrintPage() {
       } catch {
         // Font loading API is unavailable; the fallback stack is already applied.
       }
-      // One extra frame so the final layout has been painted.
-      requestAnimationFrame(() => {
-        if (!cancelled) window.print();
-      });
+      // Two frames: one for pagination to settle after the fonts, one to paint.
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          if (!cancelled) window.print();
+        }),
+      );
     };
     void go();
     return () => {
       cancelled = true;
     };
-  }, [design, data]);
+  }, [design, data, laidOut]);
 
   if (error) {
     return (
@@ -78,7 +82,7 @@ export default function PrintPage() {
         Your browser&apos;s print dialog should have opened. Choose &ldquo;Save as PDF&rdquo;, and set
         margins to <strong>None</strong> — the page margins are already part of the design.
       </p>
-      <CvPreview design={design} data={data} />
+      <CvPreview design={design} data={data} onPaginated={() => setLaidOut(true)} />
     </div>
   );
 }
