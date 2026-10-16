@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Button, Panel, Textarea, cx } from '@/components/ui/kit';
+import { bulletPrintOf } from '@/lib/assemble';
 import type {
   CareerLibrary,
   CvDocumentData,
@@ -324,7 +325,9 @@ function AddFromLibrary({
           dateText: entry.dateText,
           link: entry.link,
           links: entry.links.map((l) => ({ ...l })),
+          group: entry.group,
           bullets: entry.bullets.map((b) => b.text),
+          bulletPrint: bulletPrintOf(entry),
         });
       }}
     >

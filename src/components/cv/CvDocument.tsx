@@ -1,14 +1,22 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { embeddedPrefix } from '@/lib/embedded-fonts';
+import { locksText, splitParagraphs, squash } from '@/lib/line-lock';
 import { fontStack } from '@/lib/fonts';
 import type {
   CvDocumentData,
   DesignSpec,
   EntryLink,
+  LockedLines,
   RenderedEntry,
   RenderedSection,
   RenderedSkillGroup,
+  HeaderField,
+  HeaderTemplate,
+  HeadingField,
+  HeadingPart,
+  HeadingTemplate,
   SectionDef,
+  SectionSpacing,
 } from '@/types/cv';
 
 /**
@@ -47,6 +55,8 @@ export function textStyle(design: DesignSpec): CSSProperties {
     fontFamily: embeddedPrefix(design, 'body') + fontStack(design.font.bodyFamily),
     fontSize: pt(design.font.baseSizePt),
     lineHeight: design.font.lineHeight,
+    wordSpacing: design.font.wordSpacingPt ? pt(design.font.wordSpacingPt) : undefined,
+    letterSpacing: design.font.letterSpacingEm ? `${design.font.letterSpacingEm}em` : undefined,
     // Justified text with no hyphenation opens rivers of white space; LaTeX
     // hyphenates, so matching its line breaks needs this too.
     hyphens: design.font.textAlign === 'justify' ? 'auto' : 'manual',
@@ -75,6 +85,8 @@ export function pageStyle(design: DesignSpec): CSSProperties {
     paddingLeft: `${design.page.marginLeft}mm`,
     background: '#ffffff',
     boxSizing: 'border-box',
+    // Read by the continuation-page rule in globals.css.
+    ['--cv-continuation-top' as string]: pt(design.page.continuationTopPt ?? 0),
   };
 }
 
@@ -97,56 +109,94 @@ function visibleSections(design: DesignSpec, data: CvDocumentData, column: 'main
     );
 }
 
-/**
- * Two-column layouts cannot be dealt onto pages block by block (the columns
- * flow independently), so they keep the single continuous sheet.
- */
-export function canPaginate(design: DesignSpec, data: CvDocumentData): boolean {
-  return design.layout.type !== 'two-column' || visibleSections(design, data, 'side').length === 0;
-}
 
 export interface Block {
   key: string;
   node: ReactNode;
   /** Never end a page on this block (section headings). */
   keepWithNext: boolean;
+  /** Two-column CVs: the header spans the page, sections sit in a column. */
+  column: 'full' | 'main' | 'side';
+}
+
+/** A two-column CV with something actually in its side column. */
+export function isTwoColumn(design: DesignSpec, data: CvDocumentData): boolean {
+  return design.layout.type === 'two-column' && visibleSections(design, data, 'side').length > 0;
+}
+
+/** Column widths in mm: side column, gap, main column. */
+export function columnWidthsMm(design: DesignSpec) {
+  const total = contentWidthMm(design);
+  const side = (total * design.layout.sideWidthPct) / 100;
+  const gap = 18 * (25.4 / 72);
+  return { side, gap, main: total - side - gap };
 }
 
 export function buildBlocks(design: DesignSpec, data: CvDocumentData): Block[] {
+  const twoCol = isTwoColumn(design, data);
   const blocks: Block[] = [
-    { key: 'header', node: <Header design={design} data={data} />, keepWithNext: false },
+    { key: 'header', node: <Header design={design} data={data} />, keepWithNext: false, column: twoCol ? 'full' : 'main' },
   ];
 
-  const sections = [...visibleSections(design, data, 'main'), ...visibleSections(design, data, 'side')];
-  for (const { def, section } of sections) {
-    blocks.push({
+  const sections = [
+    ...visibleSections(design, data, 'main').map((x) => ({ ...x, column: 'main' as const })),
+    ...visibleSections(design, data, 'side').map((x) => ({ ...x, column: twoCol ? ('side' as const) : ('main' as const) })),
+  ];
+  // A left gutter (moderncv): every section sits in the content column; the
+  // gutter holds only what entries hang into it.
+  const gutter = !twoCol && design.layout.gutterPt ? design.layout.gutterPt : 0;
+  for (const { def, section, column } of sections) {
+    const push = (b: Omit<Block, 'column'>) =>
+      blocks.push({ ...b, column, node: gutter ? <div style={{ paddingLeft: pt(gutter) }}>{b.node}</div> : b.node });
+    push({
       key: `${def.id}:heading`,
-      node: <SectionHeading design={design} title={section.title ?? def.title} />,
+      node: <SectionHeading design={design} title={section.title ?? def.title} topPt={def.spacing?.headingTopPt} />,
       keepWithNext: true,
     });
 
     if (def.type === 'summary') {
-      blocks.push({
+      push({
         key: `${def.id}:summary`,
-        node: <Paragraph design={design}>{section.summary}</Paragraph>,
+        node: (
+          <Paragraph
+            design={design}
+            text={section.summary ?? ''}
+            lines={section.summaryLines}
+            paragraphs={section.summaryParagraphs}
+            gapPt={def.spacing?.entryGapPt ?? design.entry.spacingPt}
+          />
+        ),
         keepWithNext: false,
       });
     } else if (def.type === 'skills') {
       skillBlocks(design, section.skillGroups).forEach((node, i) =>
-        blocks.push({ key: `${def.id}:skills:${i}`, node, keepWithNext: false }),
+        push({ key: `${def.id}:skills:${i}`, node, keepWithNext: false }),
       );
     } else {
       section.entries.forEach((entry, i) => {
         if (startsGroup(section.entries, i)) {
-          blocks.push({
+          push({
             key: `${def.id}:group:${i}`,
             node: <GroupLabel design={design} label={entry.group!} first={i === 0} />,
             keepWithNext: true,
           });
         }
-        blocks.push({
+        push({
           key: `${def.id}:${entry.entryId ?? i}`,
-          node: <Entry design={design} entry={entry} isLast={i === section.entries.length - 1} />,
+          node: (
+            <Entry
+              design={design}
+              entry={entry}
+              isLast={i === section.entries.length - 1}
+              layout={def.entryLayout}
+              joiner={def.titleJoiner}
+              spacing={def.spacing}
+              template={def.heading}
+              previous={def.mergeRepeats ? section.entries[i - 1] : undefined}
+              numbered={def.numbered}
+              linksAfter={def.linksAfter}
+            />
+          ),
           keepWithNext: false,
         });
       });
@@ -200,7 +250,7 @@ export default function CvDocument({
       <Section key={def.id} design={design} def={def} section={section} />
     ));
 
-  const twoColumn = !canPaginate(design, data);
+  const twoColumn = isTwoColumn(design, data);
 
   return (
     <div className={className} style={rootStyle} lang="en" data-cv-root="true">
@@ -236,15 +286,34 @@ function Section({
 }) {
   return (
     <section>
-      <SectionHeading design={design} title={section.title ?? def.title} />
-      {def.type === 'summary' && <Paragraph design={design}>{section.summary}</Paragraph>}
+      <SectionHeading design={design} title={section.title ?? def.title} topPt={def.spacing?.headingTopPt} />
+      {def.type === 'summary' && (
+        <Paragraph
+          design={design}
+          text={section.summary ?? ''}
+          lines={section.summaryLines}
+          paragraphs={section.summaryParagraphs}
+          gapPt={def.spacing?.entryGapPt ?? design.entry.spacingPt}
+        />
+      )}
       {def.type === 'skills' && skillBlocks(design, section.skillGroups)}
       {def.type !== 'summary' &&
         def.type !== 'skills' &&
         section.entries.map((entry, i) => (
           <div key={entry.entryId ?? `${def.id}-${i}`}>
             {startsGroup(section.entries, i) && <GroupLabel design={design} label={entry.group!} first={i === 0} />}
-            <Entry design={design} entry={entry} isLast={i === section.entries.length - 1} />
+            <Entry
+              design={design}
+              entry={entry}
+              isLast={i === section.entries.length - 1}
+              layout={def.entryLayout}
+              joiner={def.titleJoiner}
+              spacing={def.spacing}
+              template={def.heading}
+              previous={def.mergeRepeats ? section.entries[i - 1] : undefined}
+              numbered={def.numbered}
+              linksAfter={def.linksAfter}
+            />
           </div>
         ))}
     </section>
@@ -278,17 +347,100 @@ function Link({ design, href, children }: { design: DesignSpec; href?: string; c
  */
 const PROSE: CSSProperties = { textWrap: 'pretty' };
 
-function Paragraph({ design, children }: { design: DesignSpec; children: ReactNode }) {
+function Paragraph({
+  design,
+  text,
+  lines,
+  paragraphs,
+  gapPt,
+}: {
+  design: DesignSpec;
+  text: string;
+  lines?: LockedLines;
+  /** Locked lines per paragraph, for a summary of several. */
+  paragraphs?: (LockedLines | null)[];
+  /** Space between paragraphs. */
+  gapPt: number;
+}) {
+  const paras = splitParagraphs(text);
+  if (paras.length <= 1) {
+    return (
+      <p data-role="summary" style={{ ...PROSE, margin: 0, textAlign: design.font.textAlign }}>
+        <LockedText design={design} text={text} lines={lines} />
+      </p>
+    );
+  }
   return (
-    <p data-role="summary" style={{ ...PROSE, margin: 0, textAlign: design.font.textAlign }}>
-      {children}
-    </p>
+    <>
+      {paras.map((p, i) => (
+        <p
+          key={i}
+          data-role="summary"
+          style={{ ...PROSE, margin: 0, marginTop: i ? pt(gapPt) : 0, textAlign: design.font.textAlign }}
+        >
+          <LockedText design={design} text={p} lines={paragraphs?.[i] ?? undefined} />
+        </p>
+      ))}
+    </>
+  );
+}
+
+/**
+ * Text set on the original's own line breaks when it is unchanged, so TeX's
+ * hyphenation and tight spacing carry over exactly; otherwise normal wrapping.
+ * Lines too wide for the browser's spacing are tightened by CvPreview.
+ */
+function LockedText({
+  design,
+  text,
+  lines,
+  boldPrefix,
+}: {
+  design: DesignSpec;
+  text: string;
+  lines?: LockedLines;
+  boldPrefix?: string;
+}) {
+  // A bold lead-in ("Current CGPA:") applies only while the text still starts with it.
+  const lead = boldPrefix && text.startsWith(boldPrefix) ? boldPrefix : '';
+  const withLead = (s: string, first: boolean) =>
+    first && lead && s.startsWith(lead) ? (
+      <>
+        <b style={{ fontWeight: design.entry.titleWeight }}>{lead}</b>
+        {s.slice(lead.length)}
+      </>
+    ) : (
+      s
+    );
+  if (!locksText(text, lines)) return <>{withLead(text, true)}</>;
+  const justify = design.font.textAlign === 'justify';
+  return (
+    <>
+      {lines.lines.map((line, i) => {
+        const stretch = justify && i < lines.lines.length - 1;
+        return (
+          <span
+            key={i}
+            className="cv-line"
+            style={{
+              display: 'block',
+              whiteSpace: 'nowrap',
+              textAlign: stretch ? 'justify' : 'left',
+              textAlignLast: stretch ? 'justify' : 'auto',
+            }}
+          >
+            {withLead(line, i === 0)}
+          </span>
+        );
+      })}
+    </>
   );
 }
 
 // ---------------------------------------------------------------------------
 
 function Header({ design, data }: { design: DesignSpec; data: CvDocumentData }) {
+  if (design.header.template) return <TemplateHeader design={design} data={data} template={design.header.template} />;
   const h = design.header;
   const { personal } = data;
 
@@ -416,9 +568,147 @@ function Header({ design, data }: { design: DesignSpec; data: CvDocumentData }) 
   );
 }
 
+
+/**
+ * The header as the original arranged it: rows of personal fields, each row
+ * with a left, centre and right group. Covers centred blocks, a name with
+ * contacts beside it, and split two-sided headers alike.
+ */
+function TemplateHeader({
+  design,
+  data,
+  template,
+}: {
+  design: DesignSpec;
+  data: CvDocumentData;
+  template: HeaderTemplate;
+}) {
+  const h = design.header;
+  const { personal } = data;
+
+  const labelled = (label: string, value: ReactNode) => (
+    <>
+      {label && <span style={{ fontWeight: h.contactLabelWeight }}>{label} </span>}
+      {value}
+    </>
+  );
+
+  const nameStyle: CSSProperties = {
+    fontFamily: embeddedPrefix(design, 'name') + fontStack(design.font.headingFamily),
+    fontSize: pt(h.nameSizePt),
+    fontWeight: h.nameWeight,
+    textTransform: h.nameTransform === 'uppercase' ? 'uppercase' : 'none',
+    letterSpacing: `${h.nameLetterSpacingEm}em`,
+    color: h.nameColor,
+    lineHeight: 1.15,
+  };
+
+  const nodeFor = (field: HeaderField): ReactNode => {
+    if (field === 'name') {
+      return (
+        <span data-role="name" style={nameStyle}>
+          {personal.fullName}
+        </span>
+      );
+    }
+    if (field === 'headline') {
+      return personal.headline ? (
+        <span style={{ fontSize: pt(h.headlineSizePt), fontStyle: h.headlineStyle }}>{personal.headline}</span>
+      ) : null;
+    }
+    if (field === 'email') {
+      return personal.email
+        ? labelled(
+            h.contactLabels.email,
+            <Link design={design} href={`mailto:${personal.email}`}>
+              {personal.email}
+            </Link>,
+          )
+        : null;
+    }
+    if (field.startsWith('text:')) return template.literals?.[Number(field.split(':')[1])] ?? null;
+    if (field === 'phone') return personal.phone ? labelled(h.contactLabels.phone, personal.phone) : null;
+    if (field === 'location') return personal.location ? labelled(h.contactLabels.location, personal.location) : null;
+    const link = personal.links[Number(field.split(':')[1])];
+    return link?.label ? (
+      <Link design={design} href={link.href}>
+        {link.label}
+      </Link>
+    ) : null;
+  };
+
+  const group = (parts: HeadingPart<HeaderField>[]) =>
+    parts
+      .map((part) => ({ part, node: nodeFor(part.field) }))
+      .filter((x) => x.node)
+      .map(({ part, node }, i) => {
+        const glyph = part.joiner.trim();
+        return (
+          <span key={part.field}>
+            {i > 0 &&
+              (part.gapPt != null && !glyph ? (
+                <span style={{ display: 'inline-block', width: pt(part.gapPt) }} />
+              ) : glyph && h.contactGapPt != null ? (
+                <Sep text={glyph} gapPt={h.contactGapPt} />
+              ) : (
+                <span style={{ whiteSpace: 'pre' }}>{part.joiner || ' '}</span>
+              ))}
+            {part.field === 'name' ? (
+              node
+            ) : (
+              // Each part as the original printed it: a smaller italic
+              // location, a bold phone number.
+              <span
+                style={{
+                  fontSize: part.sizePt ? pt(part.sizePt) : undefined,
+                  fontStyle: part.style.endsWith('italic') ? 'italic' : undefined,
+                  fontWeight: part.style.startsWith('bold') ? 700 : undefined,
+                }}
+              >
+                {node}
+              </span>
+            )}
+          </span>
+        );
+      });
+
+  return (
+    <header
+      style={{
+        marginBottom: pt(h.spaceBelowPt),
+        paddingBottom: h.ruleBelow ? pt(4) : undefined,
+        borderBottom: h.ruleBelow ? `${design.sectionHeading.rulePt || 0.75}pt solid ${design.color.rule}` : undefined,
+      }}
+    >
+      {template.rows.map((row, r) => {
+        const left = group(row.left);
+        const center = group(row.center);
+        const right = group(row.right);
+        if (!left.length && !center.length && !right.length) return null;
+        const hasName = [...row.left, ...row.center, ...row.right].some((p) => p.field === 'name');
+        const rowStyle: CSSProperties = {
+          display: 'grid',
+          gridTemplateColumns: '1fr auto 1fr',
+          alignItems: 'baseline',
+          fontSize: pt(h.contactSizePt),
+          color: design.color.muted,
+          marginTop: r === 0 ? 0 : pt((r === 1 ? h.contactTopPt : 0) + (row.topPt ?? 0)),
+        };
+        return (
+          <div key={r} style={rowStyle} data-role={hasName ? undefined : 'contact'} data-row={r}>
+            <div style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>{left}</div>
+            <div style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>{center}</div>
+            <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{right}</div>
+          </div>
+        );
+      })}
+    </header>
+  );
+}
+
 // ---------------------------------------------------------------------------
 
-function SectionHeading({ design, title }: { design: DesignSpec; title: string }) {
+function SectionHeading({ design, title, topPt }: { design: DesignSpec; title: string; topPt?: number }) {
   const s = design.sectionHeading;
   const base: CSSProperties = {
     fontFamily: embeddedPrefix(design, 'heading') + fontStack(design.font.headingFamily),
@@ -429,7 +719,7 @@ function SectionHeading({ design, title }: { design: DesignSpec; title: string }
     letterSpacing: `${s.letterSpacingEm}em`,
     color: s.color,
     textAlign: s.align,
-    marginTop: pt(s.spaceBeforePt),
+    marginTop: pt(topPt ?? s.spaceBeforePt),
     marginBottom: pt(s.spaceAfterPt),
     lineHeight: 1.2,
     hyphens: 'manual',
@@ -495,8 +785,45 @@ function EntryLinks({ design, links }: { design: DesignSpec; links: EntryLink[] 
   );
 }
 
-function Entry({ design, entry, isLast }: { design: DesignSpec; entry: RenderedEntry; isLast: boolean }) {
-  const e = design.entry;
+function Entry({
+  design,
+  entry,
+  isLast,
+  layout: sectionLayout,
+  joiner: sectionJoiner,
+  spacing,
+  template,
+  previous,
+  numbered,
+  linksAfter,
+}: {
+  design: DesignSpec;
+  entry: RenderedEntry;
+  isLast: boolean;
+  /** The section's own layout, when it differs from the design-wide one. */
+  layout?: DesignSpec['entry']['layout'];
+  joiner?: string;
+  spacing?: SectionSpacing;
+  /** The heading arrangement read from the original, when there is one. */
+  template?: HeadingTemplate;
+  /** The entry above, in sections that print a shared organisation once. */
+  previous?: RenderedEntry;
+  /** The section numbers its items instead of bulleting them. */
+  numbered?: 'asc' | 'desc';
+  /** Own-line links print after the bullets rather than under the heading. */
+  linksAfter?: boolean;
+}) {
+  // Section-fitted gaps override the design-wide ones.
+  const e = {
+    ...design.entry,
+    spacingPt: spacing?.entryGapPt ?? design.entry.spacingPt,
+    bulletsTopPt: spacing?.bulletsTopPt ?? design.entry.bulletsTopPt,
+    subtitleGapPt: spacing?.subtitleGapPt ?? design.entry.subtitleGapPt,
+    bulletSpacingPt: spacing?.bulletGapPt ?? design.entry.bulletSpacingPt,
+    indentPt: spacing?.entryIndentPt ?? design.entry.indentPt,
+  };
+  const layout = sectionLayout ?? e.layout;
+  const joiner = sectionJoiner ?? e.titleJoiner;
   const links = (entry.links ?? []).filter((l) => l.label.trim());
 
   const titleStyle: CSSProperties = { fontSize: pt(e.titleSizePt), fontWeight: e.titleWeight };
@@ -529,22 +856,158 @@ function Entry({ design, entry, isLast }: { design: DesignSpec; entry: RenderedE
       </span>
     ) : null;
 
-  const ownLineLinks =
+  // On a line of their own: under the heading, or - where the original
+  // prints them last (a DOI under the authors) - after the bullets.
+  const linkLine = (topPt: number) =>
     e.linksPlacement === 'own-line' && links.length > 0 ? (
-      <div data-role="links" style={{ marginTop: pt(e.subtitleGapPt) }}>
+      <div data-role="links" style={{ marginTop: pt(topPt) }}>
         <EntryLinks design={design} links={links} />
       </div>
     ) : null;
+  const ownLineLinks = linksAfter ? null : linkLine(e.subtitleGapPt);
 
   const bulletLinks = e.linksPlacement === 'bullet' && links.length > 0 ? links : [];
   const inlineDate = e.dateAlign === 'inline' && entry.dateText;
-  const wrap: CSSProperties = { marginBottom: isLast ? 0 : pt(e.spacingPt) };
+  const wrap: CSSProperties = {
+    marginBottom: isLast ? 0 : pt(e.spacingPt),
+    paddingLeft: e.indentPt ? pt(e.indentPt) : undefined,
+  };
   const row: CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' };
   const row2: CSSProperties = { ...row, marginTop: pt(e.subtitleGapPt) };
-  const bullets = <Bullets design={design} bullets={entry.bullets} links={bulletLinks} />;
+  const row1 = row;
+  const bullets = (
+    <>
+      <Bullets
+        design={design}
+        bullets={entry.bullets}
+        links={bulletLinks}
+        print={entry.bulletPrint}
+        gapPt={e.bulletSpacingPt}
+        topPt={e.bulletsTopPt}
+        numbered={numbered}
+      />
+      {linksAfter && linkLine(entry.bullets.length ? e.bulletSpacingPt : e.subtitleGapPt)}
+    </>
+  );
+
+  // A headingless list (certifications, a bulleted summary): just the bullets.
+  if (!entry.title && !entry.subtitle && !entry.dateText && !entry.location) {
+    return (
+      <div style={wrap}>
+        {ownLineLinks}
+        {bullets}
+      </div>
+    );
+  }
+
+  if (template) {
+    const valueOf = (f: HeadingField): ReactNode =>
+      f === 'title'
+        ? entry.title
+          ? titleNode
+          : null
+        : f === 'subtitle'
+          ? entry.subtitle
+          : f === 'location'
+            ? entry.location
+            : f === 'note'
+              ? entry.note
+              : entry.dateText;
+    const styleOf = (part: HeadingPart): CSSProperties => ({
+      fontSize: pt(part.sizePt ?? (part.field === 'title' ? e.titleSizePt : part.field === 'date' ? e.dateSizePt : e.subtitleSizePt)),
+      fontWeight: part.style.startsWith('bold') ? e.titleWeight : 'normal',
+      fontStyle: part.style.endsWith('italic') ? 'italic' : 'normal',
+      color: part.field === 'date' || part.field === 'location' || part.field === 'note' ? design.color.muted : undefined,
+    });
+    const run = (parts: HeadingPart[]) =>
+      parts
+        .filter((part) => valueOf(part.field))
+        .map((part, i) => (
+          <span key={part.field}>
+            {i > 0 && <span style={{ whiteSpace: 'pre' }}>{part.joiner}</span>}
+            <span style={styleOf(part)}>{valueOf(part.field)}</span>
+          </span>
+        ));
+    // A second role at the same organisation: its first row would only
+    // repeat the one printed above it.
+    const text = (x: RenderedEntry, f: HeadingField) =>
+      (f === 'title' ? x.title : f === 'subtitle' ? x.subtitle : f === 'location' ? x.location : f === 'note' ? x.note : x.dateText)?.trim() ?? '';
+    const first = template.rows[0] ? [...template.rows[0].left, ...template.rows[0].right] : [];
+    const repeats =
+      previous != null && template.rows.length > 1 && first.length > 0 && first.every((p) => text(entry, p.field) === text(previous, p.field));
+    const rows = template.rows
+      .slice(repeats ? 1 : 0)
+      .map((row) => ({ left: run(row.left), right: run(row.right) }))
+      .filter((row) => row.left.length || row.right.length);
+    // Hung into the layout's left gutter, flush right against the content.
+    const gutterParts = template.gutter ? run(template.gutter) : [];
+    const hang =
+      gutterParts.length > 0 ? (
+        <span
+          style={{
+            position: 'absolute',
+            right: `calc(100% + ${pt(design.layout.gutterGapPt ?? 8)})`,
+            whiteSpace: 'nowrap',
+            textAlign: 'right',
+          }}
+        >
+          {gutterParts}
+        </span>
+      ) : null;
+
+    // Later rows holding only right-hand fields (dates, location, duration)
+    // form a column beside the bullets rather than lines above them.
+    const aside = template.rows.length > 1 && template.rows.slice(1).every((r) => r.left.length === 0);
+    if (aside && rows.length) {
+      return (
+        <div style={wrap}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={row1} data-role="title">
+                <div style={{ minWidth: 0 }}>
+                  {rows[0].left}
+                  {titleLinks}
+                </div>
+              </div>
+              {ownLineLinks}
+              {bullets}
+            </div>
+            <div style={{ textAlign: 'right', whiteSpace: 'nowrap', paddingLeft: pt(8) }}>
+              {rows.map((row, r) => (
+                <div key={r} data-role={r === 0 ? undefined : 'subtitle'} style={r === 0 ? undefined : { marginTop: pt(e.subtitleGapPt) }}>
+                  {row.right}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div style={wrap}>
+        {rows.map((row, r) => (
+          <div
+            key={r}
+            style={{ ...(r === 0 ? row1 : row2), ...(r === 0 && hang ? { position: 'relative' } : {}) }}
+            data-role={r === 0 ? 'title' : 'subtitle'}
+          >
+            {r === 0 && hang}
+            <div style={{ minWidth: 0 }}>
+              {row.left}
+              {r === 0 && titleLinks}
+            </div>
+            {row.right.length > 0 && <div style={{ whiteSpace: 'nowrap', paddingLeft: pt(8) }}>{row.right}</div>}
+          </div>
+        ))}
+        {ownLineLinks}
+        {bullets}
+      </div>
+    );
+  }
 
   // `compact` collapses title, subtitle and date onto a single line.
-  if (e.layout === 'compact') {
+  if (layout === 'compact') {
     return (
       <div style={wrap}>
         <div style={row} data-role="title">
@@ -567,20 +1030,27 @@ function Entry({ design, entry, isLast }: { design: DesignSpec; entry: RenderedE
     );
   }
 
-  // `org-title`: "Company – Role" in title style on one line, date right,
-  // location alone underneath.
-  if (e.layout === 'org-title') {
+  // `org-title` / `title-org`: "Company – Role" or "Event - Organiser" in
+  // title style on one line, date right, location alone underneath.
+  if (layout === 'org-title' || layout === 'title-org') {
+    const join = entry.subtitle ? <span style={{ whiteSpace: 'pre' }}>{joiner}</span> : null;
     return (
       <div style={wrap}>
         <div style={row} data-role="title">
           <div style={{ ...titleStyle, minWidth: 0 }}>
-            {entry.subtitle && (
+            {layout === 'org-title' ? (
               <>
                 {entry.subtitle}
-                <span style={{ whiteSpace: 'pre' }}>{e.titleJoiner}</span>
+                {join}
+                {titleNode}
+              </>
+            ) : (
+              <>
+                {titleNode}
+                {join}
+                {entry.subtitle}
               </>
             )}
-            {titleNode}
             {titleLinks}
           </div>
           {entry.dateText && <div style={{ ...dateStyle, fontWeight: e.titleWeight }}>{entry.dateText}</div>}
@@ -598,7 +1068,7 @@ function Entry({ design, entry, isLast }: { design: DesignSpec; entry: RenderedE
 
   // `title-then-subtitle` puts location on the title row and the date beside
   // the subtitle; the default puts the date on the title row.
-  const swapped = e.layout === 'title-then-subtitle';
+  const swapped = layout === 'title-then-subtitle';
   const row1Right = swapped ? entry.location : entry.dateText;
   const row2Right = swapped ? entry.dateText : entry.location;
 
@@ -630,11 +1100,17 @@ function BulletRow({
   design,
   last,
   role = 'bullet',
+  gapPt,
+  glyph,
   children,
 }: {
   design: DesignSpec;
   last: boolean;
   role?: string;
+  /** Gap below this row; defaults to the design-wide bullet gap. */
+  gapPt?: number;
+  /** In place of the design's bullet glyph: a list number ("2."). */
+  glyph?: string;
   children: ReactNode;
 }) {
   const e = design.entry;
@@ -647,27 +1123,87 @@ function BulletRow({
       style={{
         display: 'flex',
         fontSize: pt(e.bulletSizePt),
-        marginBottom: last ? 0 : pt(e.bulletSpacingPt),
+        marginBottom: last ? 0 : pt(gapPt ?? e.bulletSpacingPt),
         paddingLeft: pt(Math.max(0, e.bulletIndentPt)),
       }}
     >
-      <span style={{ flexShrink: 0, width: pt(glyphBox) }}>{e.bulletChar}</span>
+      <span style={{ flexShrink: 0, minWidth: pt(glyphBox), whiteSpace: 'nowrap', paddingRight: glyph ? '0.3em' : undefined }}>
+        {glyph ?? e.bulletChar}
+      </span>
       <span style={{ ...PROSE, flex: 1, minWidth: 0, textAlign: design.font.textAlign }}>{children}</span>
     </li>
   );
 }
 
-function Bullets({ design, bullets, links }: { design: DesignSpec; bullets: string[]; links: EntryLink[] }) {
+/** A table row: each cell starts at the original's tab stop; the last one wraps. */
+function Cells({ cells, tabs }: { cells: string[]; tabs: number[] }) {
+  const widths = tabs.slice(1).map((t, i) => pt(t - tabs[i]));
+  return (
+    <span style={{ display: 'grid', gridTemplateColumns: [...widths, 'minmax(0, 1fr)'].join(' ') }}>
+      {cells.map((c, i) => (
+        <span key={i} style={i < cells.length - 1 ? { whiteSpace: 'nowrap' } : undefined}>
+          {c}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function Bullets({
+  design,
+  bullets,
+  links,
+  print,
+  gapPt,
+  topPt,
+  numbered,
+}: {
+  design: DesignSpec;
+  bullets: string[];
+  links: EntryLink[];
+  print?: RenderedEntry['bulletPrint'];
+  gapPt: number;
+  topPt: number;
+  numbered?: 'asc' | 'desc';
+}) {
   if (!bullets.length && !links.length) return null;
   return (
-    <ul style={{ listStyle: 'none', margin: `${pt(design.entry.bulletsTopPt)} 0 0 0`, padding: 0 }}>
-      {bullets.map((text, i) => (
-        <BulletRow key={i} design={design} last={i === bullets.length - 1 && links.length === 0}>
-          {text}
-        </BulletRow>
-      ))}
+    <ul style={{ listStyle: 'none', margin: `${pt(topPt)} 0 0 0`, padding: 0 }}>
+      {bullets.map((text, i) => {
+        const last = i === bullets.length - 1 && links.length === 0;
+        const p = print?.[text];
+        const body =
+          p?.cells && p.tabs && p.cells.join(' ') === squash(text) ? (
+            <Cells cells={p.cells} tabs={p.tabs} />
+          ) : (
+            <LockedText design={design} text={text} lines={p?.lines} boldPrefix={p?.boldPrefix} />
+          );
+        // Some CVs print a detail line ("Current CGPA: 3.64") with no glyph.
+        if (p?.plain && !numbered) {
+          return (
+            <li
+              key={i}
+              data-role="bullet"
+              style={{ fontSize: pt(design.entry.bulletSizePt), marginBottom: last ? 0 : pt(gapPt) }}
+            >
+              {body}
+            </li>
+          );
+        }
+        return (
+          <BulletRow
+            key={i}
+            design={design}
+            last={last}
+            gapPt={gapPt}
+            glyph={numbered ? `${numbered === 'asc' ? i + 1 : bullets.length - i}.` : undefined}
+          >
+            {body}
+          </BulletRow>
+        );
+      })}
       {links.length > 0 && (
-        <BulletRow design={design} last role="links">
+        <BulletRow design={design} last role="links" gapPt={gapPt}>
           <span style={{ textAlign: 'left', display: 'block' }}>
             <EntryLinks design={design} links={links} />
           </span>
@@ -755,6 +1291,44 @@ function skillBlocks(design: DesignSpec, groups: RenderedSkillGroup[]): ReactNod
             )}
           </div>
         ))}
+      </div>
+    ));
+  }
+
+  // Stacked groups print as the original did whatever the section's layout:
+  // the category on its own line, then one line per item.
+  if (live.some((g) => g.stacked)) {
+    return live.flatMap((g, i) =>
+      g.stacked
+        ? [
+            g.category && <GroupLabel key={`${i}-c`} design={design} label={g.category} first={i === 0} />,
+            ...g.skills.map((skill, k) => (
+              <div key={`${i}-${k}`} data-role="skill" style={gap(k, g.skills.length)}>
+                {skill}
+              </div>
+            )),
+          ].filter(Boolean)
+        : [
+            <div key={i} data-role="skill" style={gap(i, live.length)}>
+              {label(g)}
+              <span>{g.skills.join(s.separator)}</span>
+            </div>,
+          ],
+    );
+  }
+
+  if (s.layout === 'table' && s.itemsAtPt) {
+    const gutter = s.categoryGapPt ?? 6;
+    return live.map((g, i) => (
+      <div
+        key={i}
+        data-role="skill"
+        style={{ display: 'grid', gridTemplateColumns: `${pt(s.itemsAtPt!)} minmax(0, 1fr)`, ...gap(i, live.length) }}
+      >
+        <span style={{ fontWeight: s.categoryWeight, textAlign: s.categoryAlign ?? 'right', paddingRight: pt(gutter) }}>
+          {g.category.replace(/:\s*$/, '')}
+        </span>
+        <span>{g.skills.join(s.separator)}</span>
       </div>
     ));
   }

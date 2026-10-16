@@ -144,3 +144,26 @@ export function EmptyState({
     </div>
   );
 }
+
+const DATE_FORMAT = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+const DATE_TIME_FORMAT = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
+/**
+ * A date in the viewer's time zone. The server renders in its own zone, so the
+ * text can legitimately differ by a day or an hour at hydration; the client's
+ * value is the right one.
+ */
+export function LocalDate({ iso, withTime = false }: { iso: string; withTime?: boolean }) {
+  const d = new Date(iso);
+  return (
+    <time dateTime={iso} suppressHydrationWarning>
+      {(withTime ? DATE_TIME_FORMAT : DATE_FORMAT).format(d)}
+    </time>
+  );
+}

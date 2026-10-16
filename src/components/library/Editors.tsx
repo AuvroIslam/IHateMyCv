@@ -23,6 +23,51 @@ function parseList(value: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Label + URL on one row. A grid rather than flex: both inputs are full-width
+ * by default, so in a flex row the label swallowed the space and pushed the
+ * URL field off the edge of the card.
+ */
+function LinkRow({
+  label,
+  url,
+  labelPlaceholder = 'Label, e.g. Github',
+  onChange,
+  onRemove,
+}: {
+  label: string;
+  url: string;
+  labelPlaceholder?: string;
+  onChange: (next: { label?: string; url?: string }) => void;
+  onRemove: () => void;
+}) {
+  const href = /^(https?:|mailto:)/i.test(url.trim()) ? url.trim() : url.trim() ? `https://${url.trim()}` : '';
+  return (
+    <div className="grid grid-cols-[minmax(6rem,10rem)_minmax(0,1fr)_auto] items-center gap-2">
+      <Input value={label} placeholder={labelPlaceholder} onChange={(e) => onChange({ label: e.target.value })} />
+      <Input value={url} placeholder="https://…" onChange={(e) => onChange({ url: e.target.value })} />
+      <div className="flex items-center">
+        {href ? (
+          <a
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            title="Open link"
+            className="px-2 text-sm text-subtle hover:text-foreground"
+          >
+            ↗
+          </a>
+        ) : (
+          <span className="px-2 text-sm text-subtle/40">↗</span>
+        )}
+        <Button size="sm" variant="ghost" onClick={onRemove} aria-label="Remove link">
+          ✕
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 
 export function EntryCard({
@@ -195,34 +240,15 @@ export function EntryCard({
             </p>
             <div className="space-y-2">
               {entry.links.map((link, i) => (
-                <div key={i} className="flex gap-2">
-                  <Input
-                    value={link.label}
-                    placeholder="Label"
-                    className="w-36 shrink-0"
-                    onChange={(e) =>
-                      patch({
-                        links: entry.links.map((l, j) => (j === i ? { ...l, label: e.target.value } : l)),
-                      })
-                    }
-                  />
-                  <Input
-                    value={link.url}
-                    placeholder="https://…"
-                    onChange={(e) =>
-                      patch({
-                        links: entry.links.map((l, j) => (j === i ? { ...l, url: e.target.value } : l)),
-                      })
-                    }
-                  />
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => patch({ links: entry.links.filter((_, j) => j !== i) })}
-                  >
-                    ✕
-                  </Button>
-                </div>
+                <LinkRow
+                  key={i}
+                  label={link.label}
+                  url={link.url}
+                  onChange={(next) =>
+                    patch({ links: entry.links.map((l, j) => (j === i ? { ...l, ...next } : l)) })
+                  }
+                  onRemove={() => patch({ links: entry.links.filter((_, j) => j !== i) })}
+                />
               ))}
             </div>
             <Button
@@ -324,7 +350,7 @@ export function ImportFromNotes({
       {error && <ErrorNote>{error}</ErrorNote>}
       {!hasApiKey && (
         <p className="text-xs text-amber-700 dark:text-amber-400">
-          Needs an OpenAI API key. Add OPENAI_API_KEY to .env.local.
+          Needs an Anthropic API key. Add ANTHROPIC_API_KEY to .env.local.
         </p>
       )}
       <div className="flex gap-2">
@@ -438,41 +464,28 @@ export function PersonalEditor({
         <p className="mb-1 text-xs font-medium tracking-wide text-subtle uppercase">Links</p>
         <div className="space-y-2">
           {personal.links.map((link, i) => (
-            <div key={link.id} className="flex gap-2">
-              <Input
-                value={link.label}
-                placeholder="Displayed text"
-                onChange={(e) =>
-                  patch({
-                    links: personal.links.map((l) =>
-                      l.id === link.id ? { ...l, label: e.target.value } : l,
-                    ),
-                  })
-                }
-              />
-              <Input
-                value={link.href ?? ''}
-                placeholder="https://…"
-                onChange={(e) =>
-                  patch({
-                    links: personal.links.map((l) =>
-                      l.id === link.id ? { ...l, href: e.target.value || undefined } : l,
-                    ),
-                  })
-                }
-              />
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() =>
-                  patch({
-                    links: [...personal.links.slice(0, i), ...personal.links.slice(i + 1)],
-                  })
-                }
-              >
-                ✕
-              </Button>
-            </div>
+            <LinkRow
+              key={link.id}
+              label={link.label}
+              url={link.href ?? ''}
+              labelPlaceholder="Displayed text"
+              onChange={(next) =>
+                patch({
+                  links: personal.links.map((l) =>
+                    l.id === link.id
+                      ? {
+                          ...l,
+                          ...(next.label !== undefined ? { label: next.label } : {}),
+                          ...(next.url !== undefined ? { href: next.url || undefined } : {}),
+                        }
+                      : l,
+                  ),
+                })
+              }
+              onRemove={() =>
+                patch({ links: [...personal.links.slice(0, i), ...personal.links.slice(i + 1)] })
+              }
+            />
           ))}
         </div>
         <Button

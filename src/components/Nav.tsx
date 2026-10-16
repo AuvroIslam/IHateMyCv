@@ -19,7 +19,7 @@ export default function Nav() {
 
   return (
     <header className="no-print sticky top-0 z-20 border-b border-line bg-background/85 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center gap-6 px-5 py-3">
+      <div className="mx-auto flex max-w-[1760px] items-center gap-6 px-5 py-3">
         <Link href="/" className="font-semibold tracking-tight">
           I Hate My CV
         </Link>
