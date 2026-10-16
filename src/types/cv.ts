@@ -553,6 +553,14 @@ export interface MatchReport {
   rationale: string;
 }
 
+/** One message in a CV's editing chat. */
+export interface ChatTurn {
+  role: 'user' | 'assistant';
+  text: string;
+  /** What the assistant changed, one line per edit. */
+  changes?: string[];
+}
+
 export interface SavedCv {
   id: string;
   name: string;
@@ -563,6 +571,8 @@ export interface SavedCv {
   updatedAt: string;
   data: CvDocumentData;
   report: MatchReport | null;
+  /** The editing chat, kept with the CV. */
+  chat?: ChatTurn[];
 }
 
 export interface SourceMeta {

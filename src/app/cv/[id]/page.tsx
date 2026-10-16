@@ -4,11 +4,12 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useApp } from '@/components/AppProvider';
+import CvChat from '@/components/cv/CvChat';
 import CvEditor from '@/components/cv/CvEditor';
 import CvPreview from '@/components/cv/CvPreview';
 import { Badge, Button, ErrorNote, Input, Panel, Spinner, cx } from '@/components/ui/kit';
 import { api } from '@/lib/client-api';
-import type { CareerLibrary, CvDocumentData, DesignSpec, SavedCv } from '@/types/cv';
+import type { CareerLibrary, ChatTurn, CvDocumentData, DesignSpec, SavedCv } from '@/types/cv';
 
 export default function CvPage() {
   const { id } = useParams<{ id: string }>();
@@ -20,7 +21,9 @@ export default function CvPage() {
   const [library, setLibrary] = useState<CareerLibrary | null>(null);
   const [data, setData] = useState<CvDocumentData | null>(null);
   const [name, setName] = useState('');
-  const [tab, setTab] = useState<'content' | 'report'>('content');
+  const [tab, setTab] = useState<'chat' | 'content' | 'report'>('chat');
+  const [chat, setChat] = useState<ChatTurn[]>([]);
+  const [pageCount, setPageCount] = useState<number | undefined>();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -36,6 +39,7 @@ export default function CvPage() {
         setLibrary(res.library);
         setData(res.cv.data);
         setName(res.cv.name);
+        setChat(res.cv.chat ?? []);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load this CV.');
       } finally {
@@ -66,6 +70,21 @@ export default function CvPage() {
       setSaving(false);
     }
   }, [data, id, name, refresh]);
+
+  // Chat turns save themselves: the CV as the turn left it, and the conversation.
+  const saveTurn = useCallback(
+    async (next: CvDocumentData, turns: ChatTurn[]) => {
+      setData(next);
+      setChat(turns);
+      try {
+        const res = await api.saveCv(id, { data: next, chat: turns, name });
+        setCv(res.cv);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not save.');
+      }
+    },
+    [id, name],
+  );
 
   if (loading) {
     return (
@@ -139,12 +158,12 @@ export default function CvPage() {
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px]">
         <div className="min-w-0 rounded-lg bg-foreground/5 p-5">
-          <CvPreview design={design} data={data} targetPages={source?.pageCount} />
+          <CvPreview design={design} data={data} targetPages={source?.pageCount} onPaginated={setPageCount} />
         </div>
 
         <div className="no-print min-w-0">
           <div className="flex gap-1 border-b border-line">
-            {(['content', 'report'] as const).map((key) => (
+            {(['chat', 'content', 'report'] as const).map((key) => (
               <button
                 key={key}
                 onClick={() => setTab(key)}
@@ -155,13 +174,23 @@ export default function CvPage() {
                     : 'border-transparent text-subtle hover:text-foreground',
                 )}
               >
-                {key === 'content' ? 'Content' : 'Match report'}
+                {key === 'chat' ? 'Chat' : key === 'content' ? 'Content' : 'Match report'}
               </button>
             ))}
           </div>
 
           <div className="mt-4">
-            {tab === 'content' ? (
+            {tab === 'chat' ? (
+              <CvChat
+                cvId={id}
+                data={data}
+                history={chat}
+                pages={{ now: pageCount, original: source?.pageCount }}
+                hasJob={Boolean(cv.jobDescription?.trim())}
+                onLiveData={setData}
+                onTurnComplete={saveTurn}
+              />
+            ) : tab === 'content' ? (
               <>
                 <p className="mb-3 text-xs text-subtle">
                   Pick, drop, reorder and correct. Styling is fixed by your captured design.

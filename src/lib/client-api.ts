@@ -3,6 +3,7 @@
 import type {
   AppStateResponse,
   CareerLibrary,
+  ChatTurn,
   CvDocumentData,
   DesignSpec,
   LibraryEntry,
@@ -70,10 +71,50 @@ export const api = {
       `/api/cvs/${id}`,
     ),
 
-  saveCv: (id: string, body: { data?: CvDocumentData; name?: string }) =>
+  saveCv: (id: string, body: { data?: CvDocumentData; name?: string; chat?: ChatTurn[] }) =>
     call<{ cv: SavedCv }>(`/api/cvs/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
 
   deleteCv: (id: string) => call<{ ok: true }>(`/api/cvs/${id}`, { method: 'DELETE' }),
 
   createBlankCv: () => call<{ cv: SavedCv }>('/api/cvs', { method: 'POST' }),
+
+  /** Streams a chat message's events (see /api/cvs/[id]/chat) to `onEvent`. */
+  chatCv: async (
+    id: string,
+    body: { message: string; data: CvDocumentData; history: ChatTurn[]; pages?: { now?: number; original?: number } },
+    onEvent: (event: ChatEvent) => void,
+    signal?: AbortSignal,
+  ) => {
+    const res = await fetch(`/api/cvs/${id}/chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal,
+    });
+    if (!res.ok || !res.body) {
+      const payload = await res.json().catch(() => null);
+      throw new Error(payload?.error ?? `Chat failed (${res.status}).`);
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let cut: number;
+      while ((cut = buffer.indexOf('\n\n')) >= 0) {
+        const chunk = buffer.slice(0, cut).trim();
+        buffer = buffer.slice(cut + 2);
+        if (chunk.startsWith('data: ')) onEvent(JSON.parse(chunk.slice(6)) as ChatEvent);
+      }
+    }
+  },
 };
+
+export type ChatEvent =
+  | { type: 'text'; delta: string }
+  | { type: 'reset' }
+  | { type: 'edit'; data: CvDocumentData; change: string }
+  | { type: 'done'; data: CvDocumentData; text: string; changes: string[] }
+  | { type: 'error'; message: string; data: CvDocumentData; changes: string[] };

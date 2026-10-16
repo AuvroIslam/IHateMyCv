@@ -196,7 +196,12 @@ export default function CvPreview({
     void document.fonts?.ready.then(fit);
   }, [pages, blocks, design, data]);
 
-  const shown: PageSet[] = pages ?? [{ full: indexOf.full, main: indexOf.main, side: indexOf.side }];
+  // Pages are measured after render, so for one render after an edit they can
+  // still describe the old blocks. Pages that do not fit the current blocks
+  // wait for the next measurement rather than point past the end.
+  const fresh = pages?.every((p) => [...p.full, ...p.main, ...p.side].every((i) => i < blocks.length));
+  const shown: PageSet[] =
+    pages && fresh ? pages : [{ full: indexOf.full, main: indexOf.main, side: indexOf.side }];
   const pageCount = shown.length;
   const stackHeight = pageCount * pageHeightPx + (pageCount - 1) * PAGE_GAP_PX;
 
