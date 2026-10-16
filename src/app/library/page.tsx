@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '@/components/AppProvider';
 import CvPreview from '@/components/cv/CvPreview';
 import {
@@ -27,7 +27,23 @@ export default function LibraryPage() {
   const [active, setActive] = useState<string>('details');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [preview, setPreview] = useState(false);
+  const [preview, setPreview] = useState(true);
+  const previewRef = useRef<HTMLDivElement>(null);
+  // Typing stays responsive: the preview re-lays out a beat behind the editor.
+  const deferredDraft = useDeferredValue(draft);
+  const previewDoc = useMemo(
+    () => (deferredDraft && design ? buildBaseDocument(deferredDraft, design) : null),
+    [deferredDraft, design],
+  );
+
+  // Switching section scrolls the preview to it.
+  useEffect(() => {
+    const box = previewRef.current;
+    const el = box?.querySelector<HTMLElement>(`[data-block="${active}:heading"]`);
+    if (!box) return;
+    const top = el ? el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 12 : 0;
+    box.scrollTo({ top, behavior: 'smooth' });
+  }, [active]);
 
   // Seed the draft during render rather than in an effect: the library arrives
   // from the server with the first paint, so an effect would only add a wasted
@@ -152,7 +168,7 @@ export default function LibraryPage() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl px-5 py-10">
+    <div className="mx-auto max-w-[1760px] px-5 py-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Career Library</h1>
@@ -162,9 +178,7 @@ export default function LibraryPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button onClick={() => setPreview((v) => !v)}>
-            {preview ? 'Hide preview' : 'Preview full CV'}
-          </Button>
+          <Button onClick={() => setPreview((v) => !v)}>{preview ? 'Hide CV' : 'Show CV'}</Button>
           <Button variant="primary" onClick={save} disabled={!dirty || saving}>
             {saving && <Spinner />}
             {dirty ? 'Save changes' : 'Saved'}
@@ -178,23 +192,22 @@ export default function LibraryPage() {
         </div>
       )}
 
-      {preview && (
-        <div className="mt-6 overflow-hidden rounded-lg bg-foreground/5 p-5">
-          <p className="mb-4 text-xs text-subtle">
-            Everything in the library, in your captured design. Archived items are excluded.
-          </p>
-          <CvPreview design={design} data={buildBaseDocument(draft, design)} />
-        </div>
-      )}
-
-      <div className="mt-8 grid gap-6 md:grid-cols-[200px_1fr]">
-        <nav className="flex gap-1 overflow-x-auto md:flex-col md:overflow-visible">
+      <div
+        className={cx(
+          'mt-6 grid gap-6 md:grid-cols-[180px_minmax(0,1fr)]',
+          preview && 'xl:grid-cols-[180px_minmax(0,1fr)_minmax(440px,42%)]',
+        )}
+      >
+        <nav className="flex gap-1 overflow-x-auto md:sticky md:top-20 md:flex-col md:self-start md:overflow-visible">
           {tabs.map((tab) => {
+            const type = design.sections.find((s) => s.id === tab.key)?.type;
             const count =
               tab.key === 'details'
                 ? null
-                : draft.entries.filter((e) => e.sectionId === tab.key).length +
-                  draft.skillGroups.filter((g) => g.sectionId === tab.key).length;
+                : type === 'summary'
+                  ? draft.summaryVariants.length
+                  : draft.entries.filter((e) => e.sectionId === tab.key).length +
+                    draft.skillGroups.filter((g) => g.sectionId === tab.key).length;
             return (
               <button
                 key={tab.key}
@@ -337,6 +350,21 @@ export default function LibraryPage() {
             </div>
           )}
         </div>
+
+        {preview && previewDoc && (
+          <aside className="order-first min-w-0 md:col-span-2 xl:order-none xl:col-span-1">
+            <div
+              ref={previewRef}
+              className="rounded-lg bg-foreground/5 p-4 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto"
+            >
+              <p className="mb-3 text-xs text-subtle">
+                Live preview: everything in your library, in your design. Archived items are left out;
+                tailored CVs pick from this.
+              </p>
+              <CvPreview design={design} data={previewDoc} />
+            </div>
+          </aside>
+        )}
       </div>
 
       {dirty && (

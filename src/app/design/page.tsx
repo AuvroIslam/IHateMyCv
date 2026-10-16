@@ -15,7 +15,7 @@ type View = 'side' | 'overlay' | 'rebuilt';
 export default function DesignPage() {
   const { design, source, originalDocument, saveLibrary } = useApp();
   const [draft, setDraft] = useState<DesignSpec | null>(null);
-  const [view, setView] = useState<View>('overlay');
+  const [view, setView] = useState<View>('rebuilt');
   const [opacity, setOpacity] = useState(0.5);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -161,9 +161,9 @@ export default function DesignPage() {
             <div className="flex rounded-md border border-line p-0.5 text-sm">
               {(
                 [
-                  ['overlay', 'Overlay'],
-                  ['side', 'Side by side'],
                   ['rebuilt', 'Rebuilt only'],
+                  ['side', 'Side by side'],
+                  ['overlay', 'Overlay'],
                 ] as const
               ).map(([key, label]) => (
                 <button

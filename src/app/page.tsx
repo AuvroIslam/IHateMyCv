@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useApp } from '@/components/AppProvider';
-import { Button, Panel, Spinner } from '@/components/ui/kit';
+import { Button, LocalDate, Panel, Spinner } from '@/components/ui/kit';
 
 const STEPS = [
   {
@@ -80,7 +80,7 @@ export default function HomePage() {
           </h1>
           <p className="mt-1 text-sm text-subtle">
             {source
-              ? `Captured from ${source.fileName} on ${new Date(source.uploadedAt).toLocaleDateString()}.`
+              ? <>Captured from {source.fileName} on <LocalDate iso={source.uploadedAt} />.</>
               : 'Career Library ready.'}
           </p>
         </div>
@@ -134,7 +134,7 @@ export default function HomePage() {
                   <span className="truncate">{cv.name}</span>
                   <span className="shrink-0 text-xs text-subtle">
                     {cv.matchScore !== null && `${cv.matchScore}% match · `}
-                    {new Date(cv.updatedAt).toLocaleDateString()}
+                    <LocalDate iso={cv.updatedAt} />
                   </span>
                 </Link>
               </li>

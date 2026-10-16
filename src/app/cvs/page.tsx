@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useApp } from '@/components/AppProvider';
-import { Badge, Button, EmptyState, ErrorNote, Spinner } from '@/components/ui/kit';
+import { Badge, Button, EmptyState, ErrorNote, LocalDate, Spinner } from '@/components/ui/kit';
 import { api } from '@/lib/client-api';
 
 export default function CvsPage() {
@@ -87,7 +87,7 @@ export default function CvsPage() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{cv.name}</p>
                     <p className="text-xs text-subtle">
-                      Updated {new Date(cv.updatedAt).toLocaleString()}
+                      Updated <LocalDate iso={cv.updatedAt} withTime />
                     </p>
                   </div>
                   {cv.matchScore !== null && (

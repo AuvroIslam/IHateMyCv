@@ -34,9 +34,8 @@ function ExtractingNote() {
   const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
   return (
     <p className="mt-4 text-xs text-subtle">
-      <span className="font-medium text-foreground tabular-nums">{clock}</span> · Usually 2–4
-      minutes. The model is measuring your layout from the page images and cataloguing every
-      component, and it only has to do this once. Keep this tab open.
+      <span className="font-medium text-foreground tabular-nums">{clock}</span> · Usually about 30
+      seconds. Your design and your content are being read side by side; this happens once per CV.
     </p>
   );
 }
@@ -105,10 +104,10 @@ export default function UploadPage() {
 
       {!hasApiKey && (
         <Panel className="mt-6 p-4 text-sm">
-          <p className="font-medium">An OpenAI API key is required.</p>
+          <p className="font-medium">An Anthropic API key is required.</p>
           <p className="mt-1 text-subtle">
             Create <code className="rounded bg-foreground/8 px-1">.env.local</code> in the project
-            root with <code className="rounded bg-foreground/8 px-1">OPENAI_API_KEY=sk-...</code>{' '}
+            root with <code className="rounded bg-foreground/8 px-1">ANTHROPIC_API_KEY=sk-ant-...</code>{' '}
             and restart the dev server.
           </p>
         </Panel>
