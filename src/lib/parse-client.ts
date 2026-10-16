@@ -11,6 +11,7 @@
 
 import type { SourceLayout, UploadedFont } from '@/types/cv';
 import { remapFontToUnicode, unicodeCoverage } from './font-remap';
+import { readingOrder } from './reading-order';
 
 export interface ParsedUpload {
   kind: 'pdf' | 'docx' | 'txt';
@@ -25,6 +26,14 @@ export interface ParsedUpload {
   fonts: UploadedFont[];
   /** Where every line sat on the original, for auto-alignment. Null without layout info. */
   layout: SourceLayout | null;
+}
+
+/** Runs set in an icon font, or made only of private-use or emoji characters. */
+export function isIconRun(fontName: string, text: string): boolean {
+  if (/awesome|icon|symbol|dingbat|wingding|emoji|marvosym|academicons/i.test(fontName.replace(/^[A-Z]{6}\+/, ''))) {
+    return true;
+  }
+  return /^[\s-☀-➿\u{1F000}-\u{1FAFF}]+$/u.test(text);
 }
 
 /**
@@ -99,7 +108,8 @@ async function parsePdf(file: File): Promise<ParsedUpload> {
     // Loads the page's fonts. Without this, font names resolve only after a
     // render, so page 1 reached the model as ids like "g_d0_f1" instead of
     // "CMR10" - leaving it nothing to match the typeface on.
-    await page.getOperatorList();
+    const ops = await page.getOperatorList();
+    const hyphens = softHyphens(ops, pdfjs.OPS.showText);
     const content = await page.getTextContent();
 
     const runs: Run[] = [];
@@ -108,6 +118,10 @@ async function parsePdf(file: File): Promise<ParsedUpload> {
       const t = item.transform as number[];
       const size = Math.hypot(t[2], t[3]) || item.height || 0;
       const fontName = resolveFontName(page, item.fontName);
+      // Icons are decoration. Their text is a glyph name ("HOUSE-CHIMNEY") or
+      // a private-use character, and would leak into labels and line matching.
+      if (isIconRun(fontName, item.str)) continue;
+      const str = hyphens.length ? restoreHyphens(item.str, hyphens) : item.str;
       // Through the viewport rather than `height - y`, so pages whose box does
       // not start at 0,0 still line up with the link rectangles below.
       const [vx, vy] = viewport.convertToViewportPoint(t[4], t[5]) as [number, number];
@@ -117,18 +131,22 @@ async function parsePdf(file: File): Promise<ParsedUpload> {
         y: round(vy),
         size: round(size),
         font: fontName,
-        text: item.str,
+        text: str,
         ...fontFlags(fontName),
       });
-      recordFontUse(fontUse, page, item.fontName, round(size), item.str);
+      recordFontUse(fontUse, page, item.fontName, round(size), str);
     }
 
-    const lines = groupIntoLines(runs);
+    const lines = splitColumns(groupIntoLines(runs), viewport.width, viewport.height);
+    const columns = lines.some((l) => l.col);
     rawParts.push(lines.map((l) => l.text).join('\n'));
 
     dumpParts.push(
       `--- PAGE ${pageNo} (${round(viewport.width)}x${round(viewport.height)}pt) ---`,
     );
+    if (columns) {
+      dumpParts.push('TWO COLUMNS: the header lines come first, then the whole left column top to bottom, then the whole right column.');
+    }
     for (const line of lines.slice(0, MAX_DUMP_LINES_PER_PAGE)) {
       const flags = [line.bold ? 'bold' : '', line.italic ? 'italic' : ''].filter(Boolean).join('+');
       dumpParts.push(
@@ -154,7 +172,15 @@ async function parsePdf(file: File): Promise<ParsedUpload> {
         y: l.y,
         size: l.size,
         text: l.text,
-        runs: l.runs.map((r) => ({ x: r.x, xEnd: r.xEnd, text: r.text })),
+        ...(l.col != null ? { col: l.col } : {}),
+        runs: l.runs.map((r) => ({
+          x: r.x,
+          xEnd: r.xEnd,
+          text: r.text,
+          ...(r.bold ? { bold: true } : {}),
+          ...(r.italic ? { italic: true } : {}),
+          ...(r.size !== l.size ? { size: r.size } : {}),
+        })),
       })),
     });
 
@@ -256,7 +282,12 @@ function packFonts(use: Map<string, FontUse>): UploadedFont[] {
   let i = 0;
   for (const { font, chars, bySize } of use.values()) {
     if (!font.data || font.isType3Font || font.missingFile || chars.size === 0) continue;
-    const result = remapFontToUnicode(new Uint8Array(font.data), unicodeToFontCode(font));
+    // Only characters this font actually drew. A subset font keeps blank
+    // slots for the rest of its encoding, and mapping those would print an
+    // empty box where the browser should fall back to the matched web font.
+    // Spaces are never recorded as drawn but are real glyphs where present.
+    const drawn = new Map([...unicodeToFontCode(font)].filter(([cp]) => chars.has(cp) || cp === 0x20 || cp === 0xa0));
+    const result = remapFontToUnicode(new Uint8Array(font.data), drawn);
     if (!result.ok) continue;
 
     const covered = unicodeCoverage(result.font);
@@ -359,6 +390,58 @@ export async function extractLinks(
 interface Line extends Run {
   endX: number;
   runs: Run[];
+  col?: number;
+}
+
+interface HyphenFix {
+  before: string;
+  after: string;
+}
+
+/**
+ * Hyphens drawn with a glyph the font maps to U+00AD. Some fonts (Source Sans
+ * under XeLaTeX, as in Awesome-CV) map their only hyphen there, and pdf.js
+ * drops U+00AD from extracted text as an invisible mark - so "Shin-Il" reads
+ * "ShinIl" and "Back-end" reads "Backend". The drawing operations still hold
+ * the glyph: each one is recorded with the letters either side, spaces
+ * ignored (TeX sets spaces as offsets, not characters), to put it back.
+ */
+function softHyphens(ops: { fnArray: number[]; argsArray: unknown[] }, showText: number): HyphenFix[] {
+  const out: HyphenFix[] = [];
+  ops.fnArray.forEach((fn, i) => {
+    if (fn !== showText) return;
+    const glyphs = (ops.argsArray[i] as unknown[][])[0] ?? [];
+    const text = glyphs.map((g) => (g && typeof g === 'object' ? ((g as { unicode?: string }).unicode ?? '') : '')).join('');
+    for (let k = text.indexOf('\u00ad'); k >= 0; k = text.indexOf('\u00ad', k + 1)) {
+      const before = text.slice(0, k).replace(/[\s\u00ad]/g, '').slice(-8);
+      const after = text.slice(k + 1).replace(/[\s\u00ad]/g, '').slice(0, 8);
+      if (before.length >= 2) out.push({ before, after });
+    }
+  });
+  return out;
+}
+
+function restoreHyphens(str: string, fixes: HyphenFix[]): string {
+  for (const { before, after } of fixes) {
+    // Positions of the non-space characters, to map a match back into `str`.
+    const at: number[] = [];
+    let compact = '';
+    for (let i = 0; i < str.length; i++) {
+      if (/\s/.test(str[i])) continue;
+      at.push(i);
+      compact += str[i];
+    }
+    const key = before + after;
+    const found = after ? compact.indexOf(key) : compact.endsWith(key) ? compact.length - key.length : -1;
+    if (found < 0) continue;
+    const cut = found + before.length;
+    const pos = cut < at.length ? at[cut] : str.length;
+    // Directly after the letter before it, ahead of any space.
+    const insertAt = at[cut - 1] + 1;
+    if (str[insertAt] === '-' || pos < insertAt) continue;
+    str = `${str.slice(0, insertAt)}-${str.slice(insertAt)}`;
+  }
+  return str;
 }
 
 /**
@@ -374,32 +457,131 @@ function groupIntoLines(runs: Run[]): Line[] {
     if (current && run.y - current[0].y <= 2.2) current.push(run);
     else clusters.push([run]);
   }
+  return clusters.map(toLine).filter((l) => l.text);
+}
 
-  return clusters
-    .map((cluster) => {
-      const ordered = cluster.sort((a, b) => a.x - b.x);
-      let text = '';
-      let endX = -Infinity;
-      for (const run of ordered) {
-        // Widths are exact, so any visible gap is a word space.
-        if (text && run.x - endX > run.size * 0.15 && !/\s$/.test(text) && !/^\s/.test(run.text)) text += ' ';
-        text += run.text;
-        endX = Math.max(endX, run.xEnd);
+function toLine(cluster: Run[]): Line {
+  const ordered = [...cluster].sort((a, b) => a.x - b.x);
+  let text = '';
+  let endX = -Infinity;
+  for (const run of ordered) {
+    // Widths are exact, so any visible gap is a word space.
+    if (text && run.x - endX > run.size * 0.15 && !/\s$/.test(text) && !/^\s/.test(run.text)) text += ' ';
+    text += run.text;
+    endX = Math.max(endX, run.xEnd);
+  }
+  const main = ordered.reduce((a, b) => (b.text.length > a.text.length ? b : a));
+  return {
+    ...ordered[0],
+    y: main.y,
+    size: Math.max(...ordered.map((r) => r.size)),
+    font: main.font,
+    bold: ordered.some((r) => r.bold),
+    italic: ordered.some((r) => r.italic),
+    text: text.replace(/\s+/g, ' ').trim(),
+    endX,
+    runs: ordered,
+  };
+}
+
+/**
+ * Two independent columns share a PDF baseline wherever their lines happen to
+ * line up, and the merged line reads as nonsense ("CORNELL UNIVERSITY
+ * COURSERA | KPCB Fellow"). This finds a gutter no body text crosses and
+ * splits every line at it, so each column reads top to bottom on its own,
+ * after the header that spans them.
+ *
+ * A date column beside the body (moderncv) also leaves a clear gutter, but
+ * its lines pair with the body's one for one: that is a table, and stays
+ * merged.
+ */
+export function splitColumns(lines: Line[], width: number, height: number): Line[] {
+  const gutter = findGutter(lines, width);
+  if (gutter == null) return lines;
+  const leftOnly = lines.filter((l) => l.runs.every((r) => r.xEnd <= gutter));
+  const rightOnly = lines.filter((l) => l.runs.every((r) => r.x >= gutter));
+  if (!leftOnly.length || !rightOnly.length) return lines;
+  // The header ends with the last line near the top that spans the gutter
+  // (the name, a centred contact line); lines above it on one side only
+  // ("Last updated") are header too. Without such a line, the columns start
+  // where both have begun.
+  const spanning = lines.filter((l) => l.y < height * 0.3 && l.runs.some((r) => r.x < gutter && r.xEnd > gutter));
+  let top: number;
+  if (spanning.length) {
+    top = Math.max(...spanning.map((l) => l.y)) + 1;
+    // Lines set close under it continue the header (a second contact line).
+    let prev = spanning.reduce((a, b) => (b.y > a.y ? b : a));
+    for (const l of [...lines].sort((a, b) => a.y - b.y)) {
+      if (l.y < top) continue;
+      if (l.y - prev.y > Math.max(l.size, prev.size) * 1.6) break;
+      top = l.y + 1;
+      prev = l;
+    }
+  } else {
+    const leftTop = Math.min(...lines.filter((l) => l.runs.some((r) => r.xEnd <= gutter)).map((l) => l.y));
+    const rightTop = Math.min(...lines.filter((l) => l.runs.some((r) => r.x >= gutter)).map((l) => l.y));
+    top = Math.max(leftTop, rightTop) - 2;
+  }
+
+  const out: Line[] = [];
+  for (const line of lines) {
+    const left = line.runs.filter((r) => r.xEnd <= gutter);
+    const right = line.runs.filter((r) => r.x >= gutter);
+    if (line.y < top) {
+      out.push({ ...line, col: 0 });
+      continue;
+    }
+    // Spans the gutter below the header (a chart label): kept whole, read
+    // with the column it starts in.
+    if (left.length + right.length < line.runs.length) {
+      out.push({ ...line, col: line.x < gutter ? 1 : 2 });
+      continue;
+    }
+    if (left.length) out.push({ ...toLine(left), col: 1 });
+    if (right.length) out.push({ ...toLine(right), col: 2 });
+  }
+  return out.filter((l) => l.text).sort(readingOrder);
+}
+
+function findGutter(lines: Line[], width: number): number | null {
+  if (lines.length < 12) return null;
+  const CLEAR = 4;
+  const fits = (x: number) => {
+    let crossing = 0;
+    let left = 0;
+    let right = 0;
+    let both = 0;
+    for (const l of lines) {
+      if (l.runs.some((r) => r.x < x + CLEAR && r.xEnd > x - CLEAR)) {
+        crossing++;
+        continue;
       }
-      const main = ordered.reduce((a, b) => (b.text.length > a.text.length ? b : a));
-      return {
-        ...ordered[0],
-        y: main.y,
-        size: Math.max(...ordered.map((r) => r.size)),
-        font: main.font,
-        bold: ordered.some((r) => r.bold),
-        italic: ordered.some((r) => r.italic),
-        text: text.replace(/\s+/g, ' ').trim(),
-        endX,
-        runs: ordered,
-      };
-    })
-    .filter((l) => l.text);
+      const L = l.runs.some((r) => r.xEnd <= x);
+      const R = l.runs.some((r) => r.x >= x);
+      if (L && R) both++;
+      else if (L) left++;
+      else right++;
+    }
+    return (
+      // A few header lines may span the gutter; body text may not.
+      crossing <= Math.max(3, lines.length * 0.08) &&
+      left + both >= 8 &&
+      right + both >= 8 &&
+      // Independent columns rarely share a baseline; a table's do on every row.
+      both < 0.5 * (Math.min(left, right) + both)
+    );
+  };
+  let best: [number, number] | null = null;
+  let start: number | null = null;
+  for (let x = Math.round(width * 0.2); x <= Math.round(width * 0.8) + 1; x++) {
+    const ok = x <= width * 0.8 && fits(x);
+    if (ok && start == null) start = x;
+    if (!ok && start != null) {
+      if (!best || x - start > best[1] - best[0]) best = [start, x - 1];
+      start = null;
+    }
+  }
+  return best ? (best[0] + best[1]) / 2 : null;
 }
 
 const SEPARATOR = /^[•·|◦▪∙‧–—/]$/u;

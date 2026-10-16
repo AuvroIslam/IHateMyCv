@@ -7,7 +7,7 @@ import type { CvDocumentData, DesignSpec, SourceLayout } from '@/types/cv';
 import { fitStep, type FitReport } from './align-fit';
 import { measureRendered } from './align-measure';
 
-const MAX_ROUNDS = 6;
+const MAX_ROUNDS = 8;
 
 const frame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
 
@@ -44,8 +44,12 @@ export async function autoAlign(
       const { design: next, report } = fitStep(design, layout, measureRendered(host));
       onProgress?.(round, report);
       // The report scores the design that was just rendered, not `next`.
-      if (!best || report.verticalError < best.report.verticalError) best = { design, report };
-      if (Object.keys(report.changes).length === 0 || report.verticalError < 0.15) break;
+      // Later rounds also carry horizontal fixes the vertical score cannot
+      // see, so they win ties.
+      if (!best || report.verticalError <= best.report.verticalError + 0.05) best = { design, report };
+      // Keep going while anything still changes: a low vertical error alone
+      // says nothing about word spacing or margins.
+      if (Object.keys(report.changes).length === 0) break;
       design = next;
     }
     return { design: { ...best!.design, aligned: true }, report: best!.report };

@@ -3,7 +3,8 @@ import path from 'node:path';
 import type { SourceLayout, Store } from '@/types/cv';
 import { upgradeStore } from './migrate';
 
-export const DATA_DIR = path.join(process.cwd(), 'data');
+/** Overridable so a test instance never touches the real library. */
+export const DATA_DIR = path.join(process.cwd(), process.env.CV_DATA_DIR || 'data');
 const STORE_PATH = path.join(DATA_DIR, 'store.json');
 const PAGES_DIR = path.join(DATA_DIR, 'source-pages');
 const FONTS_DIR = path.join(DATA_DIR, 'source-fonts');

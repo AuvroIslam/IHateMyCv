@@ -102,7 +102,7 @@ export const designSpecSchema = z.object({
     dateStyle: z.enum(['normal', 'italic']),
     dateSizePt: z.number(),
     layout: z
-      .enum(['title-left-date-right', 'title-then-subtitle', 'compact', 'org-title'])
+      .enum(['title-left-date-right', 'title-then-subtitle', 'compact', 'org-title', 'title-org'])
       .describe(
         'org-title = "Company – Role" printed as ONE line in the title style with the date right and the location alone on the next line (store company in subtitle, role in title)',
       ),
@@ -195,7 +195,10 @@ export const extractionSchema = z.object({
       }),
     ),
   }),
-  summary: z.string().nullable().describe('Professional summary / objective text, verbatim'),
+  summary: z
+    .string()
+    .nullable()
+    .describe('The whole professional summary / objective, verbatim - every paragraph, separated by a blank line'),
   entries: z.array(
     z.object({
       sectionId: z.string().describe('Must match one design.sections[].id'),
@@ -236,6 +239,76 @@ export const extractionSchema = z.object({
 });
 
 export type ExtractionResult = z.infer<typeof extractionSchema>;
+
+// ---------------------------------------------------------------------------
+// Upload runs as two calls in parallel plus one in the background. Their
+// outputs merge into ExtractionResult above.
+
+/** Look only: measured from page images and coordinates. Sections come from the content call. */
+export const designCaptureSchema = z.object({
+  design: designSpecSchema.omit({ sections: true }),
+});
+export type DesignCapture = z.infer<typeof designCaptureSchema>;
+
+/**
+ * The same capture in two halves, read in parallel. Claude's structured
+ * output compiles each schema into a grammar, and the whole design schema is
+ * past its size limit; each half is well inside it.
+ */
+export const designPageSchema = z.object({
+  design: designSpecSchema.pick({ page: true, font: true, color: true, header: true }),
+});
+export const designBodySchema = z.object({
+  design: designSpecSchema.pick({ sectionHeading: true, entry: true, skills: true, layout: true }),
+});
+
+const contentShape = extractionSchema.shape;
+
+/** Words only: verbatim content and structure, no keywords. */
+export const contentSchema = z.object({
+  sections: designSpecSchema.shape.sections,
+  personal: contentShape.personal,
+  summary: contentShape.summary,
+  entries: z.array(
+    z.object({
+      sectionId: z.string().describe('Must match one sections[].id'),
+      title: z
+        .string()
+        .describe('The role, degree, project name or award - whichever way round the CV prints it. Empty for a headingless list of bullets'),
+      subtitle: z
+        .string()
+        .nullable()
+        .describe('The organisation (company, institution, issuer) or tech stack'),
+      location: z.string().nullable(),
+      dateText: z.string().nullable().describe('Date range copied EXACTLY as printed'),
+      sortDate: z.string().nullable().describe('End date as YYYY-MM for sorting; "9999-12" if ongoing/present'),
+      link: z.string().nullable().describe('URL the title itself links to, if the title is clickable'),
+      links: entryLinksSchema,
+      group: z
+        .string()
+        .nullable()
+        .describe('Sub-heading this entry is printed under inside its section (e.g. "National"), verbatim; null if none'),
+      bullets: z.array(z.string()).describe('Bullet text, verbatim'),
+    }),
+  ),
+  skillGroups: contentShape.skillGroups,
+  pageCount: z.number(),
+});
+export type ContentCapture = z.infer<typeof contentSchema>;
+
+/** Matching keywords, generated after the upload has already returned. */
+export const tagsSchema = z.object({
+  entries: z.array(
+    z.object({
+      index: z.number().describe('Index of the entry in the list given'),
+      tags: z.array(z.string()).describe('5-12 lowercase keywords describing the entry'),
+      bulletTags: z
+        .array(z.array(z.string()))
+        .describe('One list of 3-8 lowercase keywords per bullet, in bullet order'),
+    }),
+  ),
+});
+export type TagsResult = z.infer<typeof tagsSchema>;
 
 export const importSchema = z.object({
   entries: z

@@ -74,6 +74,9 @@ export function measureRendered(root: ParentNode): MeasuredElement[] {
       out.push({
         role: el.dataset.role!,
         page,
+        // Block keys are "<sectionId>:<...>", so the block names the section.
+        section: el.closest<HTMLElement>('[data-block]')?.dataset.block?.split(':')[0],
+        ...(el.dataset.row ? { row: Number(el.dataset.row) } : {}),
         lines: lines.map((l) => ({ ...l, key: l.key.normalize('NFKD').replace(/[^a-z0-9]/g, '') })),
       });
     }

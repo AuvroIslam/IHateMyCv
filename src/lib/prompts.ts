@@ -2,65 +2,98 @@ import { sectionBaseline, sectionLimits } from './assemble';
 import { fontCatalogueForPrompt } from './fonts';
 import type { CareerLibrary, DesignSpec, SectionDef } from '@/types/cv';
 
-export const EXTRACTION_SYSTEM = `You are a CV parsing engine. You do two jobs at once on a single document:
+const SOURCE_NOTE = `You are given a text layout dump of the PDF: one line per text line, with x/y in points from the top-left of the page (y = baseline), the text height in points and the embedded font name. After each page come its clickable links and the measured space around standalone separator glyphs.`;
 
-1. DESIGN CAPTURE - measure the visual design precisely enough that it can be rebuilt pixel-close in HTML.
-2. CONTENT EXTRACTION - pull out every reusable component as structured data.
+const ORG_TITLE_RULE = `If an entry's heading is ONE line holding both the organisation and the role joined by a dash ("Ostad – Teaching Assistant, React Native"), the organisation is the subtitle and the role is the title.`;
 
-You are given rendered page images plus a text layout dump with exact coordinates and font sizes in points. Use the images to judge visual style (alignment, rules, weight, colour, spacing) and the coordinate dump to get numbers right.
+/** Upload, call 1 of 2: the look. Runs in parallel with CONTENT_SYSTEM. */
+export const DESIGN_SYSTEM = `You measure the visual design of a CV precisely enough that it can be rebuilt pixel-close in HTML. You do not extract its content - a separate pass does that.
 
-## Design capture rules
+${SOURCE_NOTE} Page images follow. Use the images to judge style (alignment, rules, weight, colour) and the coordinates to get numbers right.
 
-- Section headings: copy the heading text EXACTLY as printed. If the CV says "WORK EXPERIENCE", do not normalise it to "Experience". Preserve the original casing in the title AND set the transform field to match how it is rendered.
-- List every section in exact top-to-bottom order. If the layout is two-column, mark each section's column and order them as they read: all "side" sections and all "main" sections each in their own top-to-bottom order.
-- Derive point sizes from the coordinate dump, not by guessing. The dump gives you the height of each text run in points.
-- Derive page margins from the leftmost/rightmost/topmost/bottommost text positions. Convert points to millimetres (1pt = 0.3528mm) and round to one decimal.
-- Copy the exact bullet glyph and the exact contact separator, including surrounding spaces. A CV using " | " must not become " • ".
-- Pick font keys from this catalogue by matching the embedded font names in the dump and the look in the image:
+## Rules
+
+- Derive point sizes from the dump, not by guessing. Derive margins from the outermost text positions; 1pt = 0.3528mm.
+- Copy the exact bullet glyph and contact separator glyph.
+- Pick font keys from this catalogue, matching the embedded font names first:
 
 ${fontCatalogueForPrompt()}
 
-- Match fonts on the embedded names first. LaTeX's default face (CMR10, CMBX10, SFRM1000, LMRoman...) is "computer-modern" - it is much wider than Times, so mapping it to "times" breaks every line. Only NimbusRoman / Times names map to "times".
-- If there is no rule under a heading, set rulePt to 0 and style to "plain".
-- Colours: read them from the image. Most CVs are pure black on white - do not invent an accent colour that is not there. Links are often coloured differently from body text; capture that in color.link.
-- Measure horizontal positions from the x coordinates, relative to the left margin: bulletIndentPt is where the bullet glyph sits, bulletTextIndentPt is where the bullet's text starts. Check textAlign against the image: justified text has a straight right edge.
-- Header contact line: record the order items appear in (contactOrder), any label printed before a value such as "Phone:" or "Email:" (contactLabels), and the separator between items with all of its spaces.
-- Separators: the dump lists measured space around each standalone separator glyph. Copy those numbers into contactGapPt and linkGapPt rather than padding the separator string with spaces.
-- Spacing numbers are refined automatically afterwards by measuring the rebuild, so get them close and spend your effort on structure: which layout each part uses, what belongs together, and exact wording.
+- LaTeX's default face (CMR10, CMBX10, SFRM1000, LMRoman...) is "computer-modern" - much wider than Times. Only NimbusRoman / Times names map to "times".
+- No rule under a heading: rulePt 0 and style "plain".
+- Colours come from the image. Most CVs are black on white - do not invent an accent. Links are often coloured: capture that in color.link.
+- bulletIndentPt is the bullet glyph's x minus the left margin; bulletTextIndentPt is where the bullet's text starts. Justified text has a straight right edge.
+- Header: record the order of contact items, labels printed before values ("Phone:"), and copy the measured separator gaps into contactGapPt and linkGapPt.
+- Spacing is refined automatically afterwards by measuring the rebuild, so get it close and spend your effort on choosing the right layouts.
 
-## Structure to watch for
+## Layouts to recognise
 
-- Sub-headings inside a section (e.g. "National" and "International" splitting Achievements) are NOT entries and NOT locations. Put the label in each entry's group field and style it in entry.groupLabel.
-- If entries print as "Company – Role" on one bold line with the date on the right and the location alone underneath, use layout "org-title" with the company in subtitle and the role in title.
-- Skills laid out as a grid of categories (each label on its own line, items below) are layout "columns" with the column count. Set list=true for a category whose items print as bullets, and then each bullet line is one item, verbatim.
+- ${ORG_TITLE_RULE} Such entries use layout "org-title", with the date right and the location alone on the next line.
+- Sub-headings inside a section (e.g. "National" / "International") are styled by entry.groupLabel.
+- Skills printed as a grid of categories (each label on its own line, items below) use layout "columns" with the column count.
+- A row under an entry made only of link labels ("Github • Live Link") sets entry.linksPlacement to how it is printed.`;
+
+/** Upload, call 2 of 2: the words. Runs in parallel with DESIGN_SYSTEM. */
+export const CONTENT_SYSTEM = `You extract every reusable component of a CV as structured data. Another pass measures the visual design; you only capture content and its structure.
+
+${SOURCE_NOTE}
+
+## Sections
+
+- List every section in top-to-bottom reading order, with the heading text copied EXACTLY as printed (keep "WORK EXPERIENCE", do not normalise to "Experience").
+- In a two-column layout, mark each section's column ("main"/"side") from its x position.
+- A section you cannot classify ("Leadership & Activities", "Publications") is type "extra".
+- Every entry and skill group references a section id from your list.
+
+## Content
+
+- Copy all text VERBATIM: bullets, titles, dates ("Jun 2023 - Aug 2023"). Never rewrite, shorten or "improve" - it is reused as-is. Leave out the bullet glyph itself.
+- A line under a heading printed WITHOUT a bullet glyph (a detail such as "2nd Runners-Up" or "Current CGPA: 3.64") is still one of that entry's bullets.
+- Hyphenation at line ends is not part of a word: "devel-" + "opment" is "development".
+- ${ORG_TITLE_RULE} Otherwise the title is the line printed first or most prominently and the subtitle the secondary line.
+- Sub-headings inside a section (e.g. "National" / "International" splitting Achievements) are NOT entries and NOT locations: put the label in each entry's group field.
+- A section that is only a bulleted list with no entry headings (certifications, a bulleted summary or "Summary of Qualifications") is one entry with an EMPTY title holding the items as its bullets. Never drop such a section. A summary printed as bullets is type "extra", not "summary".
+- Skills keep their original grouping and category labels ("" if none). When a category prints its items as bullets, set list=true and make each bullet line one item, verbatim.
+- The summary is ALL of the summary text: a summary of two or three paragraphs keeps every one, separated by a blank line.
+- If the CV has no summary, return null. Never invent content.
 
 ## Links
 
-The dump lists every clickable area with the text under it and its target URL. Printed CVs hide URLs behind labels like "LinkedIn", "Github" or "Live Link", so this list is the only source of them.
-- Personal links (LinkedIn, GitHub, portfolio): set href from the matching LINKS entry.
-- A row under an entry made only of link labels (e.g. "Github • Live Link") is NOT a bullet. Put each label into that entry's links with its URL - match by y position, the row belongs to the entry above it - and set design.entry.linksPlacement to how such rows are printed.
-- If the title itself is the clickable text, put its URL in the entry's link field instead.
-- Never invent a URL. A label with no LINKS entry keeps an empty url.
+The LINKS lists are the only source of URLs: printed CVs hide them behind labels like "LinkedIn" or "Live Link".
+- Personal links: set href from the matching LINKS entry.
+- A row under an entry made only of link labels ("Github • Live Link") is NOT a bullet. Put each label in that entry's links with its URL, matched by y - the row belongs to the entry above it.
+- If the title itself is clickable, its URL goes in the entry's link field.
+- Never invent a URL; a label with no LINKS entry keeps an empty url.`;
 
-## Content extraction rules
+/** Background, after upload: keywords for job matching. Never displayed. */
+export const TAGS_SYSTEM = `You write matching keywords for CV entries. They are never shown to anyone; a later pass uses them to score how relevant each entry and bullet is to a job description. Be generous and specific: technologies, methods, domains and transferable skills, all lowercase. Return one item per entry, keyed by its index, with one keyword list per bullet in order.`;
 
-- Every entry must reference a sectionId that exists in design.sections.
-- Copy bullet text VERBATIM. Do not rewrite, shorten, summarise, or "improve" it. This text is the user's own record of their work and will be reused as-is.
-- Copy date strings exactly as printed ("Jun 2023 - Aug 2023", "2021-2024", "Summer 2022").
-- Education entries: title is the degree, subtitle is the institution - unless the CV prints them the other way round, in which case follow the CV.
-- Skills: preserve the original grouping. If skills are printed as "Languages: Python, Java", the category is "Languages". If there is no category label, use an empty string.
-- Tags are yours to invent. They are never displayed - they exist purely so a later job-matching pass can score relevance. Be generous and specific: include technologies, methods, domains, and soft skills.
-- If a section exists but you cannot classify it (e.g. "Leadership & Activities", "Publications"), give it type "extra" and keep its entries there.
-- Do not invent content that is not in the document. If the CV has no summary, return null.`;
-
-export function extractionUserPrompt(textDump: string, pageCount: number): string {
-  return `This CV has ${pageCount} page(s). Below is the text layout dump: one line per text run, with x/y position in points from the top-left of the page, the run height in points, and the embedded font name. After each page comes the list of clickable links on it, if any.
+export function designUserPrompt(textDump: string, pageCount: number): string {
+  return `This CV has ${pageCount} page(s).
 
 \`\`\`
 ${textDump}
 \`\`\`
 
-The page images follow. Capture the design and extract every component.`;
+The page images follow. Measure the design.`;
+}
+
+export function contentUserPrompt(textDump: string, pageCount: number): string {
+  return `This CV has ${pageCount} page(s).
+
+\`\`\`
+${textDump}
+\`\`\`
+
+Extract every section and component.`;
+}
+
+export function tagsUserPrompt(entries: { title: string; subtitle?: string; bullets: string[] }[]): string {
+  return JSON.stringify(
+    entries.map((e, index) => ({ index, title: e.title, subtitle: e.subtitle ?? null, bullets: e.bullets })),
+    null,
+    1,
+  );
 }
 
 export const IMPORT_SYSTEM = `You turn someone's rough notes about their own work into entries for their Career Library - the pool of material their CV is assembled from.

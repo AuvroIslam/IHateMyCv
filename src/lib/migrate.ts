@@ -20,6 +20,7 @@ function deepMerge(defaults: Plain, stored: Plain): Plain {
 export function upgradeDesign(stored: unknown): DesignSpec {
   const s = stored as { color: { text: string }; entry: { bulletIndentPt: number; bulletSpacingPt: number }; font: { baseSizePt: number } };
   const legacy = {
+    page: { continuationTopPt: 0 },
     font: { textAlign: 'left', embedded: [], useEmbedded: false },
     color: { link: s.color.text },
     header: {

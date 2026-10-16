@@ -7,6 +7,7 @@ import type {
   EntryLink,
   LibraryEntry,
   MatchReport,
+  RenderedEntry,
   RenderedSection,
   SectionBaseline,
   SectionDef,
@@ -32,6 +33,7 @@ export function normalizeExtraction(raw: ExtractionResult): {
   // them after it has saved the files.
   const design: DesignSpec = {
     ...raw.design,
+    page: { ...raw.design.page, continuationTopPt: 0 },
     font: { ...raw.design.font, embedded: [], useEmbedded: false },
     sections,
     aligned: false,
@@ -59,23 +61,33 @@ export function normalizeExtraction(raw: ExtractionResult): {
     return created.id;
   };
 
-  const entries: LibraryEntry[] = raw.entries.map((e) => ({
-    id: newId(),
-    sectionId: fallbackFor(e.sectionId, 'experience'),
-    title: e.title.trim(),
-    subtitle: nn(e.subtitle),
-    location: nn(e.location),
-    dateText: nn(e.dateText),
-    sortDate: nn(e.sortDate),
-    link: nn(e.link),
-    links: cleanLinks(e.links),
-    group: nn(e.group),
-    bullets: e.bullets
-      .filter((b) => b.text.trim() && !isLinkRow(b.text, e.links))
-      .map((b) => ({ id: newId(), text: b.text.trim(), tags: cleanTags(b.tags) })),
-    tags: cleanTags(e.tags),
-    archived: false,
-  }));
+  const entries: LibraryEntry[] = raw.entries.map((e) => {
+    const bullets = e.bullets
+      .map((b) => ({ ...b, text: stripGlyph(b.text) }))
+      .filter((b) => b.text && !isLinkRow(b.text, e.links));
+    return {
+      id: newId(),
+      sectionId: fallbackFor(e.sectionId, 'experience'),
+      title: e.title.trim(),
+      subtitle: nn(e.subtitle),
+      location: nn(e.location),
+      dateText: nn(e.dateText),
+      // Read from the PDF's coordinates by applyContentFacts, not by the model.
+      ...((e as { note?: string }).note ? { note: (e as { note?: string }).note } : {}),
+      sortDate: nn(e.sortDate),
+      link: nn(e.link),
+      // A link whose label a bullet already prints ("10.1234/x (NeurIPS
+      // 2023)") is part of that line, not a link row of its own.
+      links: cleanLinks(e.links).filter((l) => {
+        const label = l.label.replace(/\s+/g, ' ').trim().toLowerCase();
+        return !label || !bullets.some((b) => b.text.toLowerCase().includes(label));
+      }),
+      group: nn(e.group),
+      bullets: bullets.map((b) => ({ id: newId(), text: b.text, tags: cleanTags(b.tags) })),
+      tags: cleanTags(e.tags),
+      archived: false,
+    };
+  });
 
   const skillGroups: SkillGroup[] = raw.skillGroups
     .map((g) => ({
@@ -84,6 +96,8 @@ export function normalizeExtraction(raw: ExtractionResult): {
       category: g.category.trim(),
       skills: dedupe(g.skills.map((s) => s.trim()).filter(Boolean)),
       list: g.list,
+      // Read from the PDF's coordinates by applyContentFacts, not by the model.
+      ...((g as { stacked?: boolean }).stacked ? { stacked: true } : {}),
       archived: false,
     }))
     .filter((g) => g.skills.length > 0);
@@ -103,11 +117,14 @@ export function normalizeExtraction(raw: ExtractionResult): {
       phone: nn(raw.personal.phone),
       location: nn(raw.personal.location),
       links: raw.personal.links
-        .filter((l) => l.label?.trim())
+        .map((l) => ({ ...l, label: stripIcons(l.label ?? ''), value: stripIcons(l.value ?? '') }))
+        .filter((l) => l.label)
+        // A "link" that is just the email or phone printed again is not one.
+        .filter((l) => ![raw.personal.email, raw.personal.phone].some((v) => v && squashText(v) === squashText(l.label)))
         .map((l) => ({
           id: newId(),
-          label: l.label.trim(),
-          value: l.value?.trim() || l.label.trim(),
+          label: l.label,
+          value: l.value || l.label,
           href: nn(l.href) ?? inferHref(l.value || l.label),
         })),
     },
@@ -213,6 +230,25 @@ function dedupeSections(input: SectionDef[]): SectionDef[] {
   });
 }
 
+/** Icon glyphs, and the names icon fonts print for them ("HOUSE-CHIMNEY"), removed. */
+function stripIcons(text: string): string {
+  return text
+    .replace(/[-☀-➿\u{1F000}-\u{1FAFF}]/gu, '')
+    .replace(/\b[A-Z]{2,}(?:-[A-Z]{2,})+\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const squashText = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
+
+/**
+ * Bullet text never includes its glyph: the renderer draws that. Models
+ * sometimes copy it in ("• Offline AI..."), which would print it twice.
+ */
+function stripGlyph(text: string): string {
+  return text.replace(/^\s*[•·◦▪∙‣]\s*/u, '').replace(/^\s*[–-]\s+/u, '').trim();
+}
+
 function cleanLinks(links: { label: string; url: string }[]): EntryLink[] {
   return links
     .map((l) => ({ label: l.label.trim(), url: inferHref(l.url) ?? l.url.trim() }))
@@ -269,6 +305,8 @@ export function buildBaseDocument(library: CareerLibrary, design: DesignSpec): C
         entries: [],
         skillGroups: [],
         summary: library.summaryVariants[0]?.text,
+        summaryLines: library.summaryVariants[0]?.lines,
+        summaryParagraphs: library.summaryVariants[0]?.paragraphs,
       };
     }
     if (def.type === 'skills') {
@@ -277,7 +315,7 @@ export function buildBaseDocument(library: CareerLibrary, design: DesignSpec): C
         entries: [],
         skillGroups: library.skillGroups
           .filter((g) => g.sectionId === def.id && !g.archived)
-          .map((g) => ({ groupId: g.id, category: g.category, skills: [...g.skills], list: g.list })),
+          .map((g) => ({ groupId: g.id, category: g.category, skills: [...g.skills], list: g.list, stacked: g.stacked })),
       };
     }
     return {
@@ -290,6 +328,17 @@ export function buildBaseDocument(library: CareerLibrary, design: DesignSpec): C
   });
 
   return { personal: structuredClone(library.personal), sections };
+}
+
+/** Line breaks and glyph style per bullet text, for the renderer. */
+export function bulletPrintOf(entry: LibraryEntry): RenderedEntry['bulletPrint'] {
+  const out: NonNullable<RenderedEntry['bulletPrint']> = {};
+  for (const b of entry.bullets) {
+    if (b.lines || b.plain || b.boldPrefix || b.cells) {
+      out[b.text] = { lines: b.lines, plain: b.plain, boldPrefix: b.boldPrefix, cells: b.cells, tabs: b.tabs };
+    }
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 function renderEntry(entry: LibraryEntry, bulletIds: string[], maxBullets = Infinity) {
@@ -305,9 +354,11 @@ function renderEntry(entry: LibraryEntry, bulletIds: string[], maxBullets = Infi
     subtitle: entry.subtitle,
     location: entry.location,
     dateText: entry.dateText,
+    note: entry.note,
     link: entry.link,
     links: (entry.links ?? []).map((l) => ({ ...l })),
     group: entry.group,
+    bulletPrint: bulletPrintOf(entry),
     // A heading with no body reads as a rendering bug, so fall back to the
     // entry's own bullets when the plan selected none.
     bullets: (bullets.length ? bullets : entry.bullets.map((b) => b.text)).slice(0, maxBullets),
@@ -338,7 +389,7 @@ export function applyTailorPlan(
     if (def.type === 'summary') {
       const chosen =
         library.summaryVariants.find((v) => v.id === plan.summaryId) ?? library.summaryVariants[0];
-      return { sectionId: def.id, entries: [], skillGroups: [], summary: chosen?.text };
+      return { sectionId: def.id, entries: [], skillGroups: [], summary: chosen?.text, summaryLines: chosen?.lines, summaryParagraphs: chosen?.paragraphs };
     }
 
     const limits = sectionLimits(def, library);
@@ -347,7 +398,7 @@ export function applyTailorPlan(
       const available = library.skillGroups.filter((g) => g.sectionId === def.id && !g.archived);
       const keepAll = () =>
         capSkills(
-          available.map((g) => ({ groupId: g.id, category: g.category, skills: [...g.skills], list: g.list })),
+          available.map((g) => ({ groupId: g.id, category: g.category, skills: [...g.skills], list: g.list, stacked: g.stacked })),
           limits.skills,
         );
 
@@ -368,7 +419,7 @@ export function applyTailorPlan(
           const allowed = new Set(group.skills);
           const picked = sg.skills.filter((s) => allowed.has(s));
           if (picked.length === 0) return null;
-          return { groupId: group.id, category: group.category, skills: picked, list: group.list };
+          return { groupId: group.id, category: group.category, skills: picked, list: group.list, stacked: group.stacked };
         })
         .filter((g): g is NonNullable<typeof g> => g !== null);
 

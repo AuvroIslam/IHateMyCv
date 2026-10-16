@@ -27,6 +27,93 @@ export interface SectionDef {
    * to whatever the library currently holds. Absent on older stores.
    */
   baseline?: SectionBaseline;
+  /**
+   * This section's entry layout when it differs from design.entry.layout:
+   * a CV may print "Company – Role" in Experience but title-then-detail in
+   * Awards.
+   */
+  entryLayout?: DesignSpec['entry']['layout'];
+  /** This section's joiner for one-line headings, when it differs (" - " vs " – "). */
+  titleJoiner?: string;
+  /**
+   * Gaps fitted for this section alone. LaTeX's spacing depends on context
+   * (after a links row vs after a bullet list), so one design-wide value
+   * cannot match every section. Unset values fall back to design.entry.
+   */
+  spacing?: SectionSpacing;
+  /** How this section's entry headings are arranged, read from the PDF. */
+  heading?: HeadingTemplate;
+  /**
+   * Consecutive roles at one organisation print the organisation once: an
+   * entry whose first heading row repeats the previous entry's leaves it out.
+   */
+  mergeRepeats?: boolean;
+  /** Items numbered rather than bulleted: 1, 2, 3 or counting down to 1. */
+  numbered?: 'asc' | 'desc';
+  /** Entry links print on their own line after the bullets (a DOI under the authors). */
+  linksAfter?: boolean;
+}
+
+export type HeadingField = 'title' | 'subtitle' | 'location' | 'date' | 'note';
+export type PartStyle = 'normal' | 'bold' | 'italic' | 'bold-italic';
+
+export interface HeadingPart<F extends string = HeadingField> {
+  field: F;
+  /** Printed between the previous part and this one (", ", " – "). Dropped when either is missing. */
+  joiner: string;
+  /** A wide blank gap before this part, in pt - where an icon stood, or a tab. */
+  gapPt?: number;
+  /** The size the original printed this part at. */
+  sizePt?: number;
+  style: PartStyle;
+}
+
+/**
+ * An entry heading as rows of fields, each row split into a left run and a
+ * right-aligned run. "**Nexus AI**, Co-Founder & CTO ... San Francisco" over
+ * "... June 2023 – present" is one template; "Ostad – Teaching Assistant ...
+ * Aug 2025" over "Remote" is another. Read per section from the original.
+ */
+export interface HeadingTemplate {
+  rows: { left: HeadingPart[]; right: HeadingPart[] }[];
+  /** Fields printed in the layout's left gutter beside the first row (a date). */
+  gutter?: HeadingPart[];
+}
+
+export type HeaderField =
+  | 'name'
+  | 'headline'
+  | 'email'
+  | 'phone'
+  | 'location'
+  | `link:${number}`
+  | `text:${number}`;
+
+/** The header the same way: rows of personal fields, placed left, centre or right. */
+export interface HeaderTemplate {
+  rows: {
+    left: HeadingPart<HeaderField>[];
+    center: HeadingPart<HeaderField>[];
+    right: HeadingPart<HeaderField>[];
+    /** Extra space above this row, fitted to the original (a motto set apart). */
+    topPt?: number;
+  }[];
+  /**
+   * Header lines that are no personal field - a motto, a tagline - printed
+   * verbatim. Referenced by `text:<index>`.
+   */
+  literals?: string[];
+}
+
+export interface SectionSpacing {
+  /** Space above this section's heading. */
+  headingTopPt?: number;
+  /** How far this section's entries sit right of its heading. */
+  entryIndentPt?: number;
+  entryGapPt?: number;
+  bulletsTopPt?: number;
+  subtitleGapPt?: number;
+  bulletGapPt?: number;
 }
 
 export interface SectionBaseline {
@@ -78,12 +165,30 @@ export interface DesignSpec {
     marginRight: number;
     marginBottom: number;
     marginLeft: number;
+    /**
+     * Extra space above the first line of every page after the first. TeX
+     * places a continuation page's first baseline by its own rule (topskip),
+     * not by the line's ascent as CSS does. Fitted by auto-align.
+     */
+    continuationTopPt: number;
   };
   font: {
     bodyFamily: string;
     headingFamily: string;
     baseSizePt: number;
     lineHeight: number;
+    /**
+     * Added to every word space. TeX fonts carry no space glyph - TeX places
+     * words itself - so the browser borrows a space from a fallback font;
+     * auto-align corrects the difference. Optional on older designs.
+     */
+    wordSpacingPt?: number;
+    /**
+     * Added between letters of body text. Fonts extracted from a PDF lose
+     * their kerning, so set text runs a touch wider than the original;
+     * auto-align fits this to take that back out. Optional on older designs.
+     */
+    letterSpacingEm?: number;
     /** Summary and bullet paragraphs. `justify` also hyphenates, as LaTeX does. */
     textAlign: 'left' | 'justify';
     /**
@@ -106,6 +211,8 @@ export interface DesignSpec {
   header: {
     /** Gap between the name and the contact line. */
     contactTopPt: number;
+    /** Arrangement read from the original; when set it replaces align/contactLayout/contactOrder. */
+    template?: HeaderTemplate;
     /**
      * Space on each side of the separator glyph. LaTeX sets these gaps as
      * measured space (\quad), which no run of space characters reproduces.
@@ -154,15 +261,18 @@ export interface DesignSpec {
     dateSizePt: number;
     /**
      * `org-title` prints "Subtitle – Title" as one bold line (company first)
-     * with the date right, and the location on the line below.
+     * with the date right, and the location on the line below; `title-org`
+     * is the same with the title first ("Hackathon - Organiser").
      */
-    layout: 'title-left-date-right' | 'title-then-subtitle' | 'compact' | 'org-title';
+    layout: 'title-left-date-right' | 'title-then-subtitle' | 'compact' | 'org-title' | 'title-org';
     /** Joins subtitle and title in the `org-title` layout, e.g. " – ". */
     titleJoiner: string;
     /** Gap between the title row and the row below it. */
     subtitleGapPt: number;
     /** Gap between an entry's heading rows and its first bullet. */
     bulletsTopPt: number;
+    /** Entries indented under their section heading (some templates nest them in a list). */
+    indentPt?: number;
     bulletChar: string;
     /** Left margin to the bullet glyph. */
     bulletIndentPt: number;
@@ -189,8 +299,17 @@ export interface DesignSpec {
     };
   };
   skills: {
-    /** `columns`: a grid of category blocks, heading line then items. */
-    layout: 'inline-categories' | 'bullets' | 'comma-list' | 'pills' | 'columns';
+    /**
+     * `columns`: a grid of category blocks, heading line then items.
+     * `table`: categories in a column of their own, items at a tab stop.
+     */
+    layout: 'inline-categories' | 'bullets' | 'comma-list' | 'pills' | 'columns' | 'table';
+    /** `table`: where the items start, in pt from the section's left edge. */
+    itemsAtPt?: number;
+    /** `table`: categories set flush right against the items, or flush left. */
+    categoryAlign?: 'left' | 'right';
+    /** `table`: space between the widest category and the items. */
+    categoryGapPt?: number;
     categoryWeight: number;
     separator: string;
     /** Gap between skill lines (or grid rows). */
@@ -202,6 +321,13 @@ export interface DesignSpec {
     type: 'single' | 'two-column';
     sideColumn: 'left' | 'right';
     sideWidthPct: number;
+    /**
+     * A left gutter beside every section (moderncv): headings and entries
+     * start this far right of the margin, and dates sit right-aligned in it.
+     */
+    gutterPt?: number;
+    /** Space between the gutter's right-aligned text and the content. */
+    gutterGapPt?: number;
   };
   sections: SectionDef[];
   /** Set once spacing has been fitted to the original's measured positions. */
@@ -216,6 +342,11 @@ export interface SourceRun {
   x: number;
   xEnd: number;
   text: string;
+  /** From the font name; absent on layouts captured before it was recorded. */
+  bold?: boolean;
+  italic?: boolean;
+  /** Font size, when it differs from the line's (a smaller date beside a title). */
+  size?: number;
 }
 
 export interface SourceLine {
@@ -225,6 +356,11 @@ export interface SourceLine {
   size: number;
   text: string;
   runs: SourceRun[];
+  /**
+   * Two-column pages only: 0 for the header above the columns, 1 for the
+   * left column, 2 for the right. Lines sort by it before their baseline.
+   */
+  col?: number;
 }
 
 export interface SourceLayout {
@@ -257,9 +393,37 @@ export interface EntryLink {
   url: string;
 }
 
+/**
+ * A paragraph's line breaks as the original printed them. Reused only while
+ * the text is unchanged, so edited text simply reflows. See lib/line-lock.
+ */
+export interface LockedLines {
+  lines: string[];
+  /** Between each pair of lines: a space, nothing ("K-" + "dramas"), or a soft hyphen. */
+  glue: (' ' | '' | 'soft')[];
+}
+
+/** Per-bullet print details carried from the original. */
+export interface BulletPrint {
+  lines?: LockedLines;
+  /** Printed as a plain line, without a bullet glyph. */
+  plain?: boolean;
+  /** A bold lead-in the original printed ("TensorFlow:", "Current CGPA:"). */
+  boldPrefix?: string;
+  /** A table row ("2014 | top 52/2500 | KPCB Fellow"): the text split into cells... */
+  cells?: string[];
+  /** ...and where each cell starts, in pt from the row's start. */
+  tabs?: number[];
+}
+
 export interface LibraryBullet {
   id: string;
   text: string;
+  lines?: LockedLines;
+  plain?: boolean;
+  boldPrefix?: string;
+  cells?: string[];
+  tabs?: number[];
   /** Keywords used to match this bullet against a job description. */
   tags: string[];
 }
@@ -278,6 +442,8 @@ export interface LibraryEntry {
   location?: string;
   /** Verbatim date string from the original CV, e.g. "Jun 2023 - Aug 2023". */
   dateText?: string;
+  /** A short extra printed on a heading row ("GPA: 3.5" beside the degree). */
+  note?: string;
   /** ISO-ish YYYY-MM used only for chronological sorting. */
   sortDate?: string;
   /** Makes the title itself clickable. */
@@ -298,6 +464,8 @@ export interface SkillGroup {
   skills: string[];
   /** Printed one item per bullet rather than as one comma-separated line. */
   list?: boolean;
+  /** The category on a line of its own, then one line per item. */
+  stacked?: boolean;
   archived: boolean;
 }
 
@@ -305,6 +473,9 @@ export interface SummaryVariant {
   id: string;
   label: string;
   text: string;
+  lines?: LockedLines;
+  /** Each paragraph's original line breaks, for a summary of several paragraphs. */
+  paragraphs?: (LockedLines | null)[];
 }
 
 export interface CareerLibrary {
@@ -325,11 +496,14 @@ export interface RenderedEntry {
   subtitle?: string;
   location?: string;
   dateText?: string;
+  note?: string;
   link?: string;
   /** Optional on CVs saved before entry links existed. */
   links?: EntryLink[];
   group?: string;
   bullets: string[];
+  /** Keyed by bullet text, so reordering or deleting bullets never misattributes it. */
+  bulletPrint?: Record<string, BulletPrint>;
 }
 
 export interface RenderedSkillGroup {
@@ -337,6 +511,7 @@ export interface RenderedSkillGroup {
   category: string;
   skills: string[];
   list?: boolean;
+  stacked?: boolean;
 }
 
 export interface RenderedSection {
@@ -346,6 +521,8 @@ export interface RenderedSection {
   entries: RenderedEntry[];
   skillGroups: RenderedSkillGroup[];
   summary?: string;
+  summaryLines?: LockedLines;
+  summaryParagraphs?: (LockedLines | null)[];
   hidden?: boolean;
 }
 

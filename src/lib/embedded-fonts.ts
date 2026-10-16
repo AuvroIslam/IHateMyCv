@@ -10,14 +10,22 @@ import type { DesignSpec, EmbeddedFace, FontRole, UploadedFont } from '@/types/c
  * 10pt, CMR12, CMR17 for large display) whose shapes genuinely differ.
  */
 export function assignFaces(fonts: UploadedFont[], design: DesignSpec): EmbeddedFace[] {
-  const roles: { role: FontRole; size: number }[] = [
-    { role: 'body', size: design.font.baseSizePt },
-    { role: 'heading', size: design.sectionHeading.sizePt },
-    { role: 'name', size: design.header.nameSizePt },
+  // The body's size from the PDF itself: running text sets more characters
+  // than anything else, in a plain upright face. The design's figure is the
+  // model's estimate, and half a point off it misses the body font entirely.
+  const total = (f: UploadedFont) => f.usage.reduce((n, u) => n + u.chars, 0);
+  const plain = fonts.filter((f) => !f.bold && !f.italic).sort((a, b) => total(b) - total(a))[0];
+  const bodySize = plain ? plain.usage.reduce((m, u) => (u.chars > m.chars ? u : m)).size : design.font.baseSizePt;
+
+  const roles: { role: FontRole; size: number; weight: 'regular' | 'bold' }[] = [
+    { role: 'body', size: bodySize, weight: 'regular' },
+    { role: 'heading', size: design.sectionHeading.sizePt, weight: design.sectionHeading.weight >= 600 ? 'bold' : 'regular' },
+    { role: 'name', size: design.header.nameSizePt, weight: design.header.nameWeight >= 600 ? 'bold' : 'regular' },
   ];
 
   const faces: EmbeddedFace[] = [];
-  for (const { role, size } of roles) {
+  for (const { role, size, weight: main } of roles) {
+    const own: EmbeddedFace[] = [];
     for (const weight of ['regular', 'bold'] as const) {
       for (const style of ['normal', 'italic'] as const) {
         const best = fonts
@@ -25,9 +33,13 @@ export function assignFaces(fonts: UploadedFont[], design: DesignSpec): Embedded
           .map((f) => ({ f, chars: charsNear(f, size) }))
           .filter((x) => x.chars > 0)
           .sort((a, b) => b.chars - a.chars)[0];
-        if (best) faces.push({ id: best.f.id, role, weight, style, source: best.f.name });
+        if (best) own.push({ id: best.f.id, role, weight, style, source: best.f.name });
       }
     }
+    // Without a face in the role's own weight, the browser would set all of
+    // the role's text in whichever face there is - body text in bold. Leave
+    // the role to the catalogue font instead.
+    if (own.some((f) => f.weight === main && f.style === 'normal')) faces.push(...own);
   }
   return faces;
 }
