@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { AiOutputError, MissingApiKeyError } from './ai';
+import { NoWorkspaceError } from './workspace';
 
 export function jsonError(message: string, status = 400) {
   return Response.json({ error: message }, { status });
@@ -9,6 +10,7 @@ export function jsonError(message: string, status = 400) {
 /** Turns SDK and validation failures into something a user can act on. */
 export function handleRouteError(err: unknown) {
   if (err instanceof MissingApiKeyError) return jsonError(err.message, 428);
+  if (err instanceof NoWorkspaceError) return jsonError(err.message, 401);
   if (err instanceof AiOutputError) return jsonError(err.message, err.status);
 
   // Anthropic (the main provider) and OpenAI (the fallback) raise the same

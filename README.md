@@ -20,10 +20,11 @@ cheapest model that does it well, chosen by testing 12 CVs and 6 job description
 | Matching keywords (in the background after upload) | `claude-haiku-5-5` | low | ~$0.002 | background |
 | Tailoring to a job | `claude-sonnet-5-5` | medium | ~$0.04 | ~12 s |
 | Add from notes | `claude-haiku-5-5` | medium | ~$0.003 | ~5 s |
+| Chat editing (per message) | `claude-sonnet-5-5` | low | ~$0.02 | 3-8 s |
 
 Override any job's model with `AI_MODEL_<JOB>` in `.env.local`, e.g.
 `AI_MODEL_TAILORING_PLAN=claude-opus-5-5` (jobs: `CV_DESIGN`, `CV_CONTENT`, `CV_TAGS`,
-`LIBRARY_IMPORT`, `TAILORING_PLAN`).
+`LIBRARY_IMPORT`, `TAILORING_PLAN`, `CV_CHAT`).
 
 Every call is priced and added to `data/spend.json` for the month. Calls stop once the month's
 spend reaches `AI_MONTHLY_BUDGET_USD` (default 500); it resets on the 1st (UTC). Without an
@@ -37,8 +38,32 @@ original's exact line breaks.
 Open http://localhost:3000. Without an API key the UI still works; to try it with demo data, run
 `curl -X POST http://localhost:3000/api/dev/seed` (development only).
 
-Data lives in `data/` (git-ignored): `store.json` plus `source-pages/`, which holds renders of the
-uploaded PDF.
+Data lives in `data/` (git-ignored). Each workspace has its own folder under `data/users/<id>/`
+(`store.json`, the uploaded PDF, its page renders, fonts and layout); `spend.json` and
+`limits.json` at the top are shared.
+
+## Chat editing
+
+Every CV page has a Chat tab. Ask for changes in plain words ("lead with BalanceLoop", "make
+every bullet one line", "rewrite the summary for this job") and they land on the preview one by
+one as the model makes them; each reply lists its changes and can be undone. The model edits
+through a fixed set of tools (`src/lib/cv-chat.ts`) and may only reword what is there or add
+what the user states - it asks rather than inventing numbers. Turns save automatically.
+
+## Releasing
+
+| Setting | Purpose |
+| --- | --- |
+| `ANTHROPIC_API_KEY` | Required. |
+| `APP_PASSWORD` | Optional gate for a private beta: every request asks for it (HTTP basic auth). |
+| `WORKSPACES` | `per-browser` (the production default) gives each browser its own private workspace via a cookie; `shared` (the development default) is one workspace for a local install. |
+| `AI_MONTHLY_BUDGET_USD` | Hard monthly cap on AI spend (default 500). |
+| `LIMIT_SCALE` | Multiplies the per-day caps: 8 uploads, 40 tailored CVs, 150 chat messages and 40 imports per workspace (4x that per IP address). |
+
+Storage is the local filesystem, so the host needs a persistent disk (a VPS, Render, Railway or
+Fly.io with a volume). Serverless hosts such as Vercel discard files between requests and would
+need a hosted store first. Workspaces are tied to a browser: clearing cookies or switching
+devices starts a new, empty one until user accounts are added.
 
 ## How it works
 

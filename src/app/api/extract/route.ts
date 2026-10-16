@@ -16,7 +16,9 @@ import {
 } from '@/lib/prompts';
 import { contentSchema, designBodySchema, designPageSchema, tagsSchema, type ExtractionResult } from '@/lib/schemas';
 import { mutateStore, readStore, savePageImages, saveSourceFonts, saveSourceLayout } from '@/lib/store';
+import { workspaceDir } from '@/lib/workspace';
 import type { SourceLayout, UploadedFont } from '@/types/cv';
+import { consume } from '@/lib/limits';
 
 export const maxDuration = 300;
 
@@ -51,9 +53,15 @@ const MAX_FONT_B64 = 4_000_000;
  */
 export async function POST(request: Request) {
   try {
+    // Page renders, fonts and the PDF itself arrive inline; real CVs come in
+    // well under this.
+    if (Number(request.headers.get('content-length')) > 40_000_000) {
+      return jsonError('That file is too large to read. Upload a CV under 10 MB.', 413);
+    }
     const body = (await request.json()) as ExtractBody;
     const textDump = body.textDump?.trim();
     if (!textDump) return jsonError('No text could be read from that file.');
+    await consume('upload');
 
     const pageCount = Math.max(1, Math.round(body.pageCount ?? 1));
     const images = (body.images ?? []).slice(0, 3);
@@ -134,7 +142,9 @@ export async function POST(request: Request) {
       store.cvs = [];
     });
 
-    after(() => tagLibrary(uploadedAt));
+    // Tagging outlives the request, so it takes this workspace along.
+    const dir = await workspaceDir();
+    after(() => tagLibrary(uploadedAt, dir));
 
     return Response.json({
       design,
@@ -155,9 +165,9 @@ export async function POST(request: Request) {
  * Writes matching keywords onto the library just built. Never blocks the
  * upload: until it lands, tailoring simply works from the text alone.
  */
-async function tagLibrary(uploadedAt: string) {
+async function tagLibrary(uploadedAt: string, dir: string) {
   try {
-    const store = await readStore();
+    const store = await readStore(dir);
     const entries = store.library?.entries ?? [];
     if (!entries.length) return;
 
@@ -184,7 +194,7 @@ async function tagLibrary(uploadedAt: string) {
           if (!b.tags.length && t.bulletTags[k]) b.tags = clean(t.bulletTags[k]);
         });
       }
-    });
+    }, dir);
   } catch (err) {
     // Keywords are an optimisation; a failure here must not surface as an error.
     console.error('Background tagging failed:', err);

@@ -6,6 +6,7 @@ import { TAILOR_SYSTEM, tailorUserPrompt } from '@/lib/prompts';
 import { tailorSchema } from '@/lib/schemas';
 import { mutateStore, readStore } from '@/lib/store';
 import type { SavedCv } from '@/types/cv';
+import { consume } from '@/lib/limits';
 
 export const maxDuration = 300;
 
@@ -17,11 +18,13 @@ export async function POST(request: Request) {
     if (jd.length < 80) {
       return jsonError('That job description is too short to tailor against. Paste the full posting.');
     }
+    if (jd.length > 20_000) return jsonError('That job description is too long. Paste just the posting itself.');
 
     const store = await readStore();
     if (!store.library || !store.design) {
       return jsonError('Upload a CV first so there is a Career Library to draw from.', 409);
     }
+    await consume('tailor');
 
     const plan = await generateStructured({
       system: TAILOR_SYSTEM,

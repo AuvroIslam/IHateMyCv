@@ -9,7 +9,7 @@ import { toJSONSchema, type z } from 'zod';
 import { markExhausted, monthSpend, orderKeys, recordSpend, recordUsage, type Tier } from './usage';
 
 /** Every job the app sends to a model. */
-export type Task = 'cv_design' | 'cv_content' | 'cv_tags' | 'library_import' | 'tailoring_plan';
+export type Task = 'cv_design' | 'cv_content' | 'cv_tags' | 'library_import' | 'tailoring_plan' | 'cv_chat';
 
 /**
  * Claude model per job, each the cheapest that does it well. Override any
@@ -24,6 +24,7 @@ const CLAUDE_MODELS: Record<Task, string> = {
   cv_design: 'claude-sonnet-5-5',
   cv_content: 'claude-sonnet-5-5',
   tailoring_plan: 'claude-sonnet-5-5',
+  cv_chat: 'claude-sonnet-5-5',
   cv_tags: 'claude-haiku-5-5',
   library_import: 'claude-haiku-5-5',
 };
@@ -87,7 +88,7 @@ export function modelFor(task: Task, tier: 'main' | 'fast' = 'main'): string {
 // requests return the stored response, so a test suite that exercises the
 // deterministic parts can re-run without spending tokens.
 
-const CACHE_DIR = process.env.AI_CACHE_DIR ? path.join(process.cwd(), process.env.AI_CACHE_DIR) : null;
+const CACHE_DIR = process.env.AI_CACHE_DIR ? path.join(/*turbopackIgnore: true*/ process.cwd(), process.env.AI_CACHE_DIR) : null;
 
 async function cached<T>(key: string, make: () => Promise<T>): Promise<T> {
   if (!CACHE_DIR) return make();
@@ -149,13 +150,38 @@ export async function generateStructured<S extends z.ZodType>({
 // ---------------------------------------------------------------------------
 // Anthropic
 
-async function callClaude<S extends z.ZodType>(model: string, req: Request<S>): Promise<z.infer<S>> {
+export function claudeClient(): Anthropic {
+  const apiKey = anthropicKey();
+  if (!apiKey) throw new MissingApiKeyError();
+  return new Anthropic({ apiKey, maxRetries: 3 });
+}
+
+/** Refuses new work once the month's spend reaches the budget. */
+export async function assertBudget(): Promise<void> {
   const spent = await monthSpend();
   if (spent.usd >= MONTHLY_BUDGET_USD) {
     throw new AiOutputError(`This month's AI budget ($${MONTHLY_BUDGET_USD}) is used up. It resets on the 1st.`, 429);
   }
+}
 
-  const client = new Anthropic({ apiKey: anthropicKey()!, maxRetries: 3 });
+/** Prices one Claude response and adds it to the month. */
+export function recordClaudeUsage(model: string, task: Task, u: Anthropic.Usage, ms: number): Promise<number> {
+  return recordSpend(
+    model,
+    task,
+    {
+      input: u.input_tokens,
+      output: u.output_tokens,
+      cacheRead: u.cache_read_input_tokens ?? 0,
+      cacheWrite: u.cache_creation_input_tokens ?? 0,
+    },
+    ms,
+  );
+}
+
+async function callClaude<S extends z.ZodType>(model: string, req: Request<S>): Promise<z.infer<S>> {
+  await assertBudget();
+  const client = claudeClient();
   const started = Date.now();
   // Streamed so a long extraction is never cut off by a request timeout.
   const stream = client.messages.stream({
@@ -181,18 +207,7 @@ async function callClaude<S extends z.ZodType>(model: string, req: Request<S>): 
   });
   const message = await stream.finalMessage();
 
-  const u = message.usage;
-  await recordSpend(
-    model,
-    req.name,
-    {
-      input: u.input_tokens,
-      output: u.output_tokens,
-      cacheRead: u.cache_read_input_tokens ?? 0,
-      cacheWrite: u.cache_creation_input_tokens ?? 0,
-    },
-    Date.now() - started,
-  );
+  await recordClaudeUsage(model, req.name, message.usage, Date.now() - started);
 
   if (message.stop_reason === 'refusal') throw new AiOutputError('The model declined to process this request.', 422);
   if (message.stop_reason === 'max_tokens') {

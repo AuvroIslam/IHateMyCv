@@ -4,6 +4,7 @@ import { normalizeImport } from '@/lib/assemble';
 import { IMPORT_SYSTEM, importUserPrompt } from '@/lib/prompts';
 import { importSchema } from '@/lib/schemas';
 import { readStore } from '@/lib/store';
+import { consume } from '@/lib/limits';
 
 export const maxDuration = 120;
 
@@ -16,6 +17,7 @@ export async function POST(request: Request) {
     const { notes, sectionId } = (await request.json()) as { notes?: string; sectionId?: string };
     const text = notes?.trim();
     if (!text) return jsonError('Write a few notes first.');
+    if (text.length > 8000) return jsonError('Those notes are too long. Add one job or project at a time.');
 
     const store = await readStore();
     if (!store.library || !store.design) {
@@ -26,6 +28,7 @@ export async function POST(request: Request) {
     if (section.type === 'summary') {
       return jsonError('Summaries are written directly - there is nothing to structure.');
     }
+    await consume('import');
 
     const parsed = await generateStructured({
       system: IMPORT_SYSTEM,
