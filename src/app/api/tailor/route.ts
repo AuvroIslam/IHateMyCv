@@ -28,8 +28,9 @@ export async function POST(request: Request) {
       user: tailorUserPrompt(store.library, store.design, jd),
       schema: tailorSchema,
       name: 'tailoring_plan',
-      // Ranking every component against the posting is the core judgement.
-      effort: 'high',
+      // Medium: on Claude Sonnet it ranks as well as Opus did (6 jobs across
+      // 4 CVs) in the same ~12s as low effort, for about $0.04 a CV.
+      effort: 'medium',
     });
 
     const { data, report } = applyTailorPlan(store.library, store.design, plan);

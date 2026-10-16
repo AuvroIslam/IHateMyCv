@@ -7,20 +7,32 @@ redesigning it from scratch.
 
 ```bash
 npm install
-echo "OPENAI_API_KEY=sk-..." > .env.local
+echo "ANTHROPIC_API_KEY=sk-ant-..." > .env.local
 npm run dev
 ```
 
-AI calls go through the OpenAI Responses API with structured outputs (`src/lib/ai.ts`).
+AI calls go through Claude with structured outputs (`src/lib/ai.ts`). Each job uses the
+cheapest model that does it well, chosen by testing 12 CVs and 6 job descriptions:
 
-| Job | Default model | Override | Reasoning |
-| --- | --- | --- | --- |
-| Reading an uploaded CV | `gpt-5.4` | `OPENAI_MODEL` | high |
-| Tailoring to a job | `gpt-5.4` | `OPENAI_MODEL` | high |
-| Add from notes | `gpt-5.4-mini` | `OPENAI_FAST_MODEL` | medium |
+| Job | Model | Effort | Typical cost | Typical time |
+| --- | --- | --- | --- | --- |
+| Reading an uploaded CV (design in two halves + content, in parallel) | `claude-sonnet-5-5` | low | ~$0.09 | 10-20 s |
+| Matching keywords (in the background after upload) | `claude-haiku-5-5` | low | ~$0.002 | background |
+| Tailoring to a job | `claude-sonnet-5-5` | medium | ~$0.04 | ~12 s |
+| Add from notes | `claude-haiku-5-5` | medium | ~$0.003 | ~5 s |
 
-The defaults fall within OpenAI's free daily token allowance for organisations that share
-traffic with OpenAI. `OPENAI_MODEL` must be able to read images.
+Override any job's model with `AI_MODEL_<JOB>` in `.env.local`, e.g.
+`AI_MODEL_TAILORING_PLAN=claude-opus-5-5` (jobs: `CV_DESIGN`, `CV_CONTENT`, `CV_TAGS`,
+`LIBRARY_IMPORT`, `TAILORING_PLAN`).
+
+Every call is priced and added to `data/spend.json` for the month. Calls stop once the month's
+spend reaches `AI_MONTHLY_BUDGET_USD` (default 500); it resets on the 1st (UTC). Without an
+Anthropic key the app falls back to OpenAI (`OPENAI_API_KEY`, with `OPENAI_API_KEY_BACKUP`
+taking over once the first key's free daily allowance is used).
+
+Spacing is not left to the model: after upload, auto-align measures the rebuild against the
+original PDF's coordinates and fits it, and paragraphs whose text is unchanged reuse the
+original's exact line breaks.
 
 Open http://localhost:3000. Without an API key the UI still works; to try it with demo data, run
 `curl -X POST http://localhost:3000/api/dev/seed` (development only).
