@@ -17,7 +17,10 @@ function adminApp(): App {
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
   // Hosting dashboards often store the key with literal "\n"s.
   const escapedNewline = String.fromCharCode(92) + 'n';
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.split(escapedNewline).join(String.fromCharCode(10));
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.trim()
+    .replace(/^"|"$/g, '') // pasted with its .env quotes
+    .split(escapedNewline)
+    .join(String.fromCharCode(10));
   if (!projectId || !clientEmail || !privateKey) {
     throw new Error('Firebase is not configured: set FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY and the NEXT_PUBLIC_FIREBASE_* values.');
   }
