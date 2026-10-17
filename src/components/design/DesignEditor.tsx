@@ -91,7 +91,7 @@ const GROUPS: { title: string; fields: FieldSpec[] }[] = [
       sel('sectionHeading.transform', 'Case', ['none', 'uppercase', 'capitalize']),
       n('sectionHeading.letterSpacingEm', 'Tracking', 0.01, 'em'),
       sel('sectionHeading.align', 'Alignment', ['left', 'center']),
-      sel('sectionHeading.style', 'Style', ['plain', 'underline', 'rule-after', 'filled-bar']),
+      sel('sectionHeading.style', 'Style', ['plain', 'underline', 'rule-before', 'rule-after', 'filled-bar']),
       n('sectionHeading.rulePt', 'Rule thickness', 0.1, 'pt'),
       n('sectionHeading.spaceBeforePt', 'Space before', 0.5, 'pt'),
       n('sectionHeading.spaceAfterPt', 'Space after', 0.5, 'pt'),

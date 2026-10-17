@@ -173,7 +173,20 @@ export function detectHeadingTemplates(
       .filter((x): x is { field: HeadingField; at: Located } => x !== null);
     if (found.length < 2) continue;
 
-    const firstLine = Math.min(...found.map((f) => f.at.line));
+    // Visual rows: a date set a few points above or below its title is a
+    // separate line in the PDF but the same row on the page.
+    const rowOf = new Map<number, number>();
+    {
+      const used = [...new Set(found.map((f) => f.at.line))].sort((a, b) => lines[a].y - lines[b].y);
+      let row = -1;
+      let prev: FlatLine | null = null;
+      for (const li of used) {
+        const l = lines[li];
+        if (!prev || l.page !== prev.page || l.y - prev.y > Math.max(l.size, prev.size) * 0.75) row++;
+        rowOf.set(li, row);
+        prev = l;
+      }
+    }
     // Right-aligned: set apart by a wide gap and ending on the column's right
     // edge, or alone on its row past the column's centre. A long left part
     // ("CORNELL ROBOT LEARNING LAB | Researcher") can push a joined field
@@ -209,7 +222,7 @@ export function detectHeadingTemplates(
         const placements = bySection.get(e.sectionId) ?? new Map<HeadingField, Placement[]>();
         const list = placements.get(f.field) ?? [];
         list.push({
-          row: f.at.line - firstLine,
+          row: rowOf.get(f.at.line)!,
           side: side(f),
           order: i,
           joiner: i === 0 ? '' : joinerBetween(lines[f.at.line].text, group[i - 1].at.end, f.at.start),
@@ -463,11 +476,38 @@ export function liftHeadingNotes(content: ContentCapture, layout: SourceLayout):
       const t = locate(e.title, lines, cursor, lines.length - 1);
       if (!t) return e;
       cursor = t.line;
+      // A title that swallowed its right-aligned date ("Gemma Hackathon 2026"
+      // where the page prints "2026" apart at the right edge): split it off.
+      if (!e.dateText?.trim()) {
+        const runs = [...lines[t.line].runs].sort((a, b) => a.x - b.x);
+        const last = runs[runs.length - 1];
+        const before = runs[runs.length - 2];
+        const tail = last ? squash(last.text) : '';
+        if (before && last.x - before.xEnd > 12 && tail && e.title.trim().endsWith(tail) && e.title.trim() !== tail) {
+          e = { ...e, title: e.title.trim().slice(0, -tail.length).trim(), dateText: tail };
+        }
+      }
       const rows = new Set([t.line]);
       for (const v of [e.subtitle, e.location, e.dateText]) {
         const at = locate(v, lines, t.line - 1, t.line + 2);
         if (at) rows.add(at.line);
       }
+      // A detail printed straight after a heading field on its line
+      // ("Remote | 4 Months") is part of that field, not a bullet.
+      for (const key of ['location', 'subtitle'] as const) {
+        const value = e[key]?.trim();
+        const at = value ? locate(value, lines, t.line - 1, t.line + 2) : null;
+        if (!value || !at) continue;
+        const rest = lines[at.line].text.slice(at.end);
+        const j = e.bullets.findIndex((b) => {
+          const m = rest.match(/^\s*([|,·•–—-])\s*/u);
+          return b.length <= 40 && m != null && rest.slice(m[0].length).trim() === b.trim();
+        });
+        if (j >= 0) {
+          return { ...e, [key]: `${value}${rest}`.trim(), bullets: e.bullets.filter((_, k) => k !== j) } as typeof e;
+        }
+      }
+
       const i = e.bullets.findIndex((b) => {
         if (b.length > 40) return false;
         const at = locate(b, lines, t.line - 1, t.line + 2);

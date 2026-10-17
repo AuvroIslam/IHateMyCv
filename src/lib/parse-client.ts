@@ -138,6 +138,8 @@ async function parsePdf(file: File): Promise<ParsedUpload> {
     }
 
     const lines = splitColumns(groupIntoLines(runs), viewport.width, viewport.height);
+    const marks = drawnMarks(ops, pdfjs, viewport);
+    markDrawnBullets(lines, marks.dots);
     const columns = lines.some((l) => l.col);
     rawParts.push(lines.map((l) => l.text).join('\n'));
 
@@ -166,6 +168,7 @@ async function parsePdf(file: File): Promise<ParsedUpload> {
     layout.pages.push({
       width: round(viewport.width),
       height: round(viewport.height),
+      ...(marks.rules.length ? { rules: marks.rules } : {}),
       lines: lines.map((l) => ({
         x: l.x,
         xEnd: round(l.endX),
@@ -391,6 +394,115 @@ interface Line extends Run {
   endX: number;
   runs: Run[];
   col?: number;
+}
+
+/** A horizontal line drawn on the page (a section rule), in viewport points. */
+export interface DrawnRule {
+  x0: number;
+  x1: number;
+  y: number;
+  thickness: number;
+  color?: string;
+}
+
+/**
+ * Shapes the text layer cannot see, found by following the drawing's
+ * transforms to page coordinates:
+ * - dots: bullets drawn as tiny filled paths (Google Docs and some Word
+ *   exports), so the text has no "•" and every bulleted line would read as plain;
+ * - rules: thin horizontal lines and bars - section rules, whose place
+ *   relative to the headings the page images alone leave ambiguous, and
+ *   underlines, which give away how links are styled and in what colour.
+ */
+function drawnMarks(
+  ops: { fnArray: number[]; argsArray: unknown[] },
+  pdfjs: PdfModule,
+  viewport: { convertToViewportPoint(x: number, y: number): number[] },
+): { dots: { x: number; y: number }[]; rules: DrawnRule[] } {
+  const { OPS, Util } = pdfjs;
+  const fills = new Set([OPS.fill, OPS.eoFill, OPS.fillStroke, OPS.eoFillStroke, OPS.closeFillStroke, OPS.closeEOFillStroke]);
+  const strokes = new Set([OPS.stroke, OPS.closeStroke]);
+  type M = [number, number, number, number, number, number];
+  interface State {
+    ctm: M;
+    fill?: string;
+    stroke?: string;
+    lineWidth: number;
+  }
+  let st: State = { ctm: [1, 0, 0, 1, 0, 0], lineWidth: 1 };
+  const stack: State[] = [];
+  const dots: { x: number; y: number }[] = [];
+  const rules: DrawnRule[] = [];
+  const toPage = (x: number, y: number) => {
+    const p = [x, y];
+    Util.applyTransform(p, st.ctm); // in place
+    return viewport.convertToViewportPoint(p[0], p[1]);
+  };
+  ops.fnArray.forEach((fn, i) => {
+    const args = ops.argsArray[i] as unknown[];
+    if (fn === OPS.save) stack.push({ ...st });
+    else if (fn === OPS.restore) st = stack.pop() ?? st;
+    else if (fn === OPS.transform) st = { ...st, ctm: Util.transform(st.ctm, args as M) as M };
+    else if (fn === OPS.setFillRGBColor) st = { ...st, fill: String(args[0]) };
+    else if (fn === OPS.setStrokeRGBColor) st = { ...st, stroke: String(args[0]) };
+    else if (fn === OPS.setLineWidth) st = { ...st, lineWidth: Number(args[0]) || 1 };
+    else if (fn === OPS.paintFormXObjectBegin) {
+      stack.push({ ...st });
+      if (Array.isArray(args[0]) || ArrayBuffer.isView(args[0])) st = { ...st, ctm: Util.transform(st.ctm, Array.from(args[0] as number[]) as M) as M };
+    } else if (fn === OPS.paintFormXObjectEnd) st = stack.pop() ?? st;
+    else if (fn === OPS.constructPath) {
+      const paint = args[0] as number;
+      const box = args[2] as ArrayLike<number> | undefined;
+      if (!box || box.length !== 4 || (!fills.has(paint) && !strokes.has(paint))) return;
+      const scale = Math.hypot(st.ctm[0], st.ctm[1]);
+      const w = (box[2] - box[0]) * scale;
+      const h = (box[3] - box[1]) * scale;
+      const [ax, ay] = toPage(box[0], (box[1] + box[3]) / 2);
+      const [bx] = toPage(box[2], (box[1] + box[3]) / 2);
+      // A list dot: small, roughly square.
+      if (fills.has(paint) && w >= 1.2 && h >= 1.2 && w <= 7 && h <= 7 && Math.abs(w - h) <= 1.5) {
+        dots.push({ x: round((ax + bx) / 2), y: round(ay) });
+        return;
+      }
+      // A rule or an underline: flat, stroked or filled. Section rules span
+      // the page; underlines run the width of a word or two.
+      if (w > 8 && (strokes.has(paint) ? h <= 1 : h <= 2.5)) {
+        rules.push({
+          x0: round(Math.min(ax, bx)),
+          x1: round(Math.max(ax, bx)),
+          y: round(ay),
+          thickness: round(Math.max(0.3, strokes.has(paint) ? st.lineWidth * scale : h)),
+          color: strokes.has(paint) ? st.stroke : st.fill,
+        });
+      }
+    }
+  });
+  return { dots, rules };
+}
+
+/**
+ * Puts a "•" in front of the text each drawn dot sits beside, as if it had
+ * been typed: at the start of a line, or mid-line where a second column's
+ * item begins.
+ */
+function markDrawnBullets(lines: Line[], dots: { x: number; y: number }[]) {
+  if (!dots.length) return;
+  lines.forEach((line, i) => {
+    // At about the middle of the line's lowercase letters.
+    const near = dots.filter((d) => Math.abs(d.y - (line.y - line.size * 0.3)) < line.size * 0.5);
+    if (!near.length) return;
+    const runs = [...line.runs];
+    let added = false;
+    for (const d of near) {
+      // The run the dot introduces: the first one starting just right of it.
+      const k = runs.findIndex((r) => r.x > d.x && r.x - d.x < 25);
+      if (k < 0 || (k > 0 && runs[k - 1].xEnd > d.x)) continue; // inside other text: not a list dot
+      if (/^\s*[•·◦▪∙‣–-]/u.test(runs[k].text) || (k > 0 && runs[k - 1].text.trim() === '•')) continue;
+      runs.splice(k, 0, { ...runs[k], x: round(d.x - 1.5), xEnd: round(d.x + 1.5), text: '•', bold: false, italic: false });
+      added = true;
+    }
+    if (added) lines[i] = { ...toLine(runs), col: line.col };
+  });
 }
 
 interface HyphenFix {

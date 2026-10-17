@@ -3,6 +3,7 @@ import { embeddedPrefix } from '@/lib/embedded-fonts';
 import { locksText, splitParagraphs, squash } from '@/lib/line-lock';
 import { fontStack } from '@/lib/fonts';
 import type {
+  LinkLook,
   CvDocumentData,
   DesignSpec,
   EntryLink,
@@ -150,7 +151,12 @@ export function buildBlocks(design: DesignSpec, data: CvDocumentData): Block[] {
       blocks.push({ ...b, column, node: gutter ? <div style={{ paddingLeft: pt(gutter) }}>{b.node}</div> : b.node });
     push({
       key: `${def.id}:heading`,
-      node: <SectionHeading design={design} title={section.title ?? def.title} topPt={def.spacing?.headingTopPt} />,
+      node: <SectionHeading
+          design={design}
+          title={section.title ?? def.title}
+          topPt={def.spacing?.headingTopPt}
+          ruleGapPt={def.spacing?.ruleGapPt}
+        />,
       keepWithNext: true,
     });
 
@@ -164,6 +170,7 @@ export function buildBlocks(design: DesignSpec, data: CvDocumentData): Block[] {
             lines={section.summaryLines}
             paragraphs={section.summaryParagraphs}
             gapPt={def.spacing?.entryGapPt ?? design.entry.spacingPt}
+            align={def.textAlign}
           />
         ),
         keepWithNext: false,
@@ -286,7 +293,12 @@ function Section({
 }) {
   return (
     <section>
-      <SectionHeading design={design} title={section.title ?? def.title} topPt={def.spacing?.headingTopPt} />
+      <SectionHeading
+          design={design}
+          title={section.title ?? def.title}
+          topPt={def.spacing?.headingTopPt}
+          ruleGapPt={def.spacing?.ruleGapPt}
+        />
       {def.type === 'summary' && (
         <Paragraph
           design={design}
@@ -294,6 +306,7 @@ function Section({
           lines={section.summaryLines}
           paragraphs={section.summaryParagraphs}
           gapPt={def.spacing?.entryGapPt ?? design.entry.spacingPt}
+            align={def.textAlign}
         />
       )}
       {def.type === 'skills' && skillBlocks(design, section.skillGroups)}
@@ -332,10 +345,27 @@ function Sep({ text, gapPt }: { text: string; gapPt?: number | null }) {
   return <span style={{ padding: `0 ${pt(Math.max(0, gapPt))}` }}>{text.trim() || text}</span>;
 }
 
-function Link({ design, href, children }: { design: DesignSpec; href?: string; children: ReactNode }) {
-  if (!href) return <span>{children}</span>;
+function Link({
+  design,
+  href,
+  look,
+  children,
+}: {
+  design: DesignSpec;
+  href?: string;
+  /** How the original printed this kind of link. */
+  look?: LinkLook;
+  children: ReactNode;
+}) {
+  const style: CSSProperties = {
+    color: look?.color ?? design.color.link,
+    textDecoration: look?.underline ? 'underline' : 'none',
+    textUnderlineOffset: look?.underline ? '0.12em' : undefined,
+    fontWeight: look?.bold ? 700 : undefined,
+  };
+  if (!href) return <span style={look ? style : undefined}>{children}</span>;
   return (
-    <a href={href} style={{ color: design.color.link, textDecoration: 'none' }}>
+    <a href={href} style={style}>
       {children}
     </a>
   );
@@ -353,6 +383,7 @@ function Paragraph({
   lines,
   paragraphs,
   gapPt,
+  align,
 }: {
   design: DesignSpec;
   text: string;
@@ -361,12 +392,15 @@ function Paragraph({
   paragraphs?: (LockedLines | null)[];
   /** Space between paragraphs. */
   gapPt: number;
+  /** The section's own alignment, when it differs from the design's. */
+  align?: 'left' | 'justify';
 }) {
+  const textAlign = align ?? design.font.textAlign;
   const paras = splitParagraphs(text);
   if (paras.length <= 1) {
     return (
-      <p data-role="summary" style={{ ...PROSE, margin: 0, textAlign: design.font.textAlign }}>
-        <LockedText design={design} text={text} lines={lines} />
+      <p data-role="summary" style={{ ...PROSE, margin: 0, textAlign }}>
+        <LockedText design={design} text={text} lines={lines} align={textAlign} />
       </p>
     );
   }
@@ -376,9 +410,9 @@ function Paragraph({
         <p
           key={i}
           data-role="summary"
-          style={{ ...PROSE, margin: 0, marginTop: i ? pt(gapPt) : 0, textAlign: design.font.textAlign }}
+          style={{ ...PROSE, margin: 0, marginTop: i ? pt(gapPt) : 0, textAlign }}
         >
-          <LockedText design={design} text={p} lines={paragraphs?.[i] ?? undefined} />
+          <LockedText design={design} text={p} lines={paragraphs?.[i] ?? undefined} align={textAlign} />
         </p>
       ))}
     </>
@@ -395,11 +429,14 @@ function LockedText({
   text,
   lines,
   boldPrefix,
+  align,
 }: {
   design: DesignSpec;
   text: string;
   lines?: LockedLines;
   boldPrefix?: string;
+  /** The section's own alignment, when it differs from the design's. */
+  align?: 'left' | 'justify';
 }) {
   // A bold lead-in ("Current CGPA:") applies only while the text still starts with it.
   const lead = boldPrefix && text.startsWith(boldPrefix) ? boldPrefix : '';
@@ -413,7 +450,7 @@ function LockedText({
       s
     );
   if (!locksText(text, lines)) return <>{withLead(text, true)}</>;
-  const justify = design.font.textAlign === 'justify';
+  const justify = (align ?? design.font.textAlign) === 'justify';
   return (
     <>
       {lines.lines.map((line, i) => {
@@ -631,7 +668,7 @@ function TemplateHeader({
     if (field === 'location') return personal.location ? labelled(h.contactLabels.location, personal.location) : null;
     const link = personal.links[Number(field.split(':')[1])];
     return link?.label ? (
-      <Link design={design} href={link.href}>
+      <Link design={design} href={link.href} look={h.linkLook}>
         {link.label}
       </Link>
     ) : null;
@@ -708,7 +745,17 @@ function TemplateHeader({
 
 // ---------------------------------------------------------------------------
 
-function SectionHeading({ design, title, topPt }: { design: DesignSpec; title: string; topPt?: number }) {
+function SectionHeading({
+  design,
+  title,
+  topPt,
+  ruleGapPt,
+}: {
+  design: DesignSpec;
+  title: string;
+  topPt?: number;
+  ruleGapPt?: number;
+}) {
   const s = design.sectionHeading;
   const base: CSSProperties = {
     fontFamily: embeddedPrefix(design, 'heading') + fontStack(design.font.headingFamily),
@@ -730,6 +777,25 @@ function SectionHeading({ design, title, topPt }: { design: DesignSpec; title: s
       <div
         data-role="heading"
         style={{ ...base, background: design.color.accent, color: '#ffffff', padding: `${pt(2)} ${pt(5)}` }}
+      >
+        {title}
+      </div>
+    );
+  }
+
+  if (s.style === 'rule-before') {
+    // The rule sits ruleGap above the heading's baseline; the baseline lies
+    // about 0.95em below the top of a 1.2 line box.
+    const gap = ruleGapPt ?? s.ruleGapPt ?? s.sizePt * 1.3;
+    const rule = s.rulePt || 0.75;
+    return (
+      <div
+        data-role="heading"
+        style={{
+          ...base,
+          borderTop: `${rule}pt solid ${design.color.rule}`,
+          paddingTop: pt(Math.max(0, gap - s.sizePt * 0.95 - rule / 2)),
+        }}
       >
         {title}
       </div>
@@ -776,7 +842,7 @@ function EntryLinks({ design, links }: { design: DesignSpec; links: EntryLink[] 
       {links.map((l, i) => (
         <span key={`${l.label}-${i}`}>
           {i > 0 && <Sep text={design.entry.linkSeparator} gapPt={design.entry.linkGapPt} />}
-          <Link design={design} href={l.url || undefined}>
+          <Link design={design} href={l.url || undefined} look={design.entry.linkLook}>
             {l.label}
           </Link>
         </span>
@@ -1202,13 +1268,22 @@ function Bullets({
           </BulletRow>
         );
       })}
-      {links.length > 0 && (
-        <BulletRow design={design} last role="links" gapPt={gapPt}>
-          <span style={{ textAlign: 'left', display: 'block' }}>
-            <EntryLinks design={design} links={links} />
-          </span>
-        </BulletRow>
-      )}
+      {links.length > 0 &&
+        (design.entry.linkEach ? (
+          links.map((l, i) => (
+            <BulletRow key={`link-${i}`} design={design} last={i === links.length - 1} role="links" gapPt={gapPt}>
+              <span style={{ textAlign: 'left', display: 'block' }}>
+                <EntryLinks design={design} links={[l]} />
+              </span>
+            </BulletRow>
+          ))
+        ) : (
+          <BulletRow design={design} last role="links" gapPt={gapPt}>
+            <span style={{ textAlign: 'left', display: 'block' }}>
+              <EntryLinks design={design} links={links} />
+            </span>
+          </BulletRow>
+        ))}
     </ul>
   );
 }

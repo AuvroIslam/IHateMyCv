@@ -1,5 +1,5 @@
 import type { ContentCapture, ExtractionResult } from './schemas';
-import type { HeaderTemplate, HeadingTemplate, SourceLayout } from '@/types/cv';
+import type { HeaderTemplate, HeadingTemplate, LinkLook, SourceLayout } from '@/types/cv';
 import {
   detectHeaderTemplate,
   detectHeadingTemplates,
@@ -64,9 +64,65 @@ export function applyMeasuredFacts(
 
   // Entry headings and the header, arranged as the original arranged them.
   const headings = detectHeadingTemplates(content, layout, gutter ? margin + gutter.width : undefined);
+  // Links one per bullet ("• Github" / "• Live Link") or all on one row: where
+  // the original printed entries' link labels decides.
+  {
+    let each = 0;
+    let together = 0;
+    for (const e of content.entries) {
+      const labels = (e.links ?? []).map((l) => norm(l.label)).filter((k) => k.length > 1);
+      if (labels.length < 2) continue;
+      const rows = labels.map((k) => lines.findIndex((l) => norm(l.text.replace(GLYPH, '')) === k));
+      if (rows.every((r) => r >= 0) && new Set(rows).size === rows.length) each++;
+      else together++;
+    }
+    if (each > together) (next.entry as RawDesign['entry'] & { linkEach?: boolean }).linkEach = true;
+  }
+
+  // A summary set justified over ragged bullets (or the reverse): judged from
+  // the summary's own lines - every wrapped line reaching the text's right edge.
+  const summaryAlign = (() => {
+    const text = norm(content.summary ?? '');
+    if (text.length < 80 || right == null) return null;
+    const ordered = layout.pages.flatMap((p) => [...p.lines].sort(readingOrder));
+    const start = ordered.findIndex((l) => norm(l.text).length >= 20 && text.startsWith(norm(l.text)));
+    if (start < 0) return null;
+    const para = [];
+    for (let i = start; i < ordered.length && text.includes(norm(ordered[i].text)) && norm(ordered[i].text); i++) para.push(ordered[i]);
+    if (para.length < 2) return null;
+    return para.slice(0, -1).every((l) => right - l.xEnd < 3) ? 'justify' : 'left';
+  })();
+
+  const rules = readHeadingRules(content, layout);
+  if (rules) {
+    // 'rule-before' is measured, never offered to the model, so it is not in the capture schema.
+    const sh = next.sectionHeading as Omit<RawDesign['sectionHeading'], 'style'> & { style: string; ruleGapPt?: number };
+    sh.style = rules.place === 'above' ? 'rule-before' : 'rule-after';
+    sh.rulePt = rules.thickness;
+    if (rules.place === 'above') {
+      sh.ruleGapPt = rules.gap;
+      // The line under the contact details is the first heading's rule, not the header's.
+      if (rules.firstHasRule) next.header.ruleBelow = false;
+    }
+    if (rules.color) next.color.rule = rules.color;
+  }
+
+  // Links as printed: entry links and the header's are often styled apart
+  // (black and underlined under projects, blue in the header).
+  const entryLook = readLinkLook(layout, content.entries.flatMap((e) => (e.links ?? []).map((l) => l.label)));
+  if (entryLook) (next.entry as RawDesign['entry'] & { linkLook?: LinkLook }).linkLook = entryLook;
+  const headerLook = readLinkLook(layout, content.personal.links.map((l) => l.label), true);
+  if (headerLook) (next.header as RawDesign['header'] & { linkLook?: LinkLook }).linkLook = headerLook;
+
   const merged = detectMergedRepeats(content, layout);
   const linksAfter = detectLinksAfter(content, layout);
-  type Extra = { heading?: HeadingTemplate; mergeRepeats?: boolean; numbered?: 'asc' | 'desc'; linksAfter?: boolean };
+  type Extra = {
+    heading?: HeadingTemplate;
+    mergeRepeats?: boolean;
+    numbered?: 'asc' | 'desc';
+    linksAfter?: boolean;
+    textAlign?: 'left' | 'justify';
+  };
   for (const section of next.sections as (RawDesign['sections'][number] & Extra)[]) {
     const t = headings.get(section.id);
     if (t) section.heading = t;
@@ -74,6 +130,11 @@ export function applyMeasuredFacts(
     const numbered = detectNumbering(content, lines, section.id);
     if (numbered) section.numbered = numbered;
     if (linksAfter.has(section.id)) section.linksAfter = true;
+    if (section.type === 'summary' && summaryAlign) section.textAlign = summaryAlign;
+    const ownGap = rules?.gaps.get(section.id);
+    if (rules?.place === 'above' && ownGap != null && Math.abs(ownGap - rules.gap) > 3) {
+      (section as typeof section & { spacing?: { ruleGapPt?: number } }).spacing = { ruleGapPt: ownGap };
+    }
   }
   const header = detectHeaderTemplate(content, layout);
   if (header) (next.header as RawDesign['header'] & { template?: HeaderTemplate }).template = header;
@@ -192,6 +253,90 @@ function detectNumbering(content: ContentCapture, lines: SourceLayout['pages'][n
   if (steps.every((d) => d === 1)) return 'asc';
   if (steps.every((d) => d === -1)) return 'desc';
   return null;
+}
+
+/**
+ * How a set of link labels is printed: bold when their runs are, underlined
+ * when a thin line runs just under them - and that line's colour is the
+ * link's colour, which the text layer does not report. Null without labels.
+ */
+export function readLinkLook(layout: SourceLayout, labels: string[], headerOnly = false): LinkLook | null {
+  const keys = [...new Set(labels.map(norm).filter((k) => k.length > 1))];
+  if (!keys.length) return null;
+  let found = 0;
+  let bold = 0;
+  let underlined = 0;
+  const colors = new Map<string, number>();
+  for (const page of headerOnly ? layout.pages.slice(0, 1) : layout.pages) {
+    const lines = headerOnly ? [...page.lines].sort((a, b) => a.y - b.y).slice(0, 4) : page.lines;
+    for (const line of lines) {
+      for (const run of line.runs) {
+        if (!keys.includes(norm(run.text.replace(GLYPH, '')))) continue;
+        found++;
+        if (run.bold) bold++;
+        const under = (page.rules ?? []).find(
+          (r) => r.y > line.y && r.y - line.y < 4 && r.x0 < run.xEnd && r.x1 > run.x && r.x1 - r.x0 < (run.xEnd - run.x) * 3,
+        );
+        if (under) {
+          underlined++;
+          if (under.color && /^#[0-9a-f]{6}$/i.test(under.color)) colors.set(under.color, (colors.get(under.color) ?? 0) + 1);
+        }
+      }
+    }
+  }
+  if (!found) return null;
+  const color = [...colors.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  return { bold: bold / found > 0.5, underline: underlined / found > 0.5, ...(color ? { color } : {}) };
+}
+
+/**
+ * Where the section rules sit: above the headings (a separator line before
+ * each section) or below them, read from the rules drawn in the PDF. The page
+ * images make the two easy to confuse. Null without rules to go on.
+ */
+export function readHeadingRules(content: ContentCapture, layout: SourceLayout) {
+  if (!layout.pages.some((p) => p.rules?.length)) return null;
+  const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+  let above = 0;
+  let below = 0;
+  const gaps = new Map<string, number>();
+  const thick: number[] = [];
+  const colors = new Map<string, number>();
+  let firstHasRule = false;
+  content.sections.forEach((section, n) => {
+    const title = norm(section.title);
+    for (const [p, page] of layout.pages.entries()) {
+      const h = page.lines.find((l) => norm(l.text) === title);
+      if (!h) continue;
+      // Section rules span most of the text width; shorter lines are underlines.
+      const overlaps = (r: { x0: number; x1: number }) => r.x0 < h.xEnd && r.x1 > h.x && r.x1 - r.x0 > page.width * 0.4;
+      const up = (page.rules ?? []).filter((r) => overlaps(r) && r.y < h.y && h.y - r.y <= h.size * 3).sort((a, b) => b.y - a.y)[0];
+      const down = (page.rules ?? []).filter((r) => overlaps(r) && r.y > h.y && r.y - h.y <= h.size * 1.2)[0];
+      const rule = up ?? down;
+      if (up) {
+        above++;
+        gaps.set(section.id, Math.round((h.y - up.y) * 10) / 10);
+        if (n === 0 && p === 0) firstHasRule = true;
+      } else if (down) below++;
+      if (rule) {
+        thick.push(rule.thickness);
+        if (rule.color) colors.set(rule.color, (colors.get(rule.color) ?? 0) + 1);
+      }
+      break;
+    }
+  });
+  const headings = content.sections.length;
+  if (above + below < Math.max(2, headings * 0.5)) return null;
+  const place = above >= below ? ('above' as const) : ('below' as const);
+  const color = [...colors.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  return {
+    place,
+    gap: gaps.size ? median([...gaps.values()]) : 0,
+    gaps,
+    thickness: Math.round(median(thick) * 100) / 100,
+    color: color && /^#[0-9a-f]{6}$/i.test(color) ? color : undefined,
+    firstHasRule,
+  };
 }
 
 const hasWideGap = (l: SourceLayout['pages'][number]['lines'][number]) => {

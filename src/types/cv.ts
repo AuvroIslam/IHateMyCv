@@ -52,6 +52,8 @@ export interface SectionDef {
   numbered?: 'asc' | 'desc';
   /** Entry links print on their own line after the bullets (a DOI under the authors). */
   linksAfter?: boolean;
+  /** This section's text alignment when it differs from the design's (a justified summary over ragged bullets). */
+  textAlign?: 'left' | 'justify';
 }
 
 export type HeadingField = 'title' | 'subtitle' | 'location' | 'date' | 'note';
@@ -74,6 +76,13 @@ export interface HeadingPart<F extends string = HeadingField> {
  * "... June 2023 – present" is one template; "Ostad – Teaching Assistant ...
  * Aug 2025" over "Remote" is another. Read per section from the original.
  */
+/** How links are printed, read from the PDF: bold, underlined, and in what colour. */
+export interface LinkLook {
+  bold?: boolean;
+  underline?: boolean;
+  color?: string;
+}
+
 export interface HeadingTemplate {
   rows: { left: HeadingPart[]; right: HeadingPart[] }[];
   /** Fields printed in the layout's left gutter beside the first row (a date). */
@@ -108,6 +117,8 @@ export interface HeaderTemplate {
 export interface SectionSpacing {
   /** Space above this section's heading. */
   headingTopPt?: number;
+  /** With a rule above the heading: its distance above the heading's baseline. */
+  ruleGapPt?: number;
   /** How far this section's entries sit right of its heading. */
   entryIndentPt?: number;
   entryGapPt?: number;
@@ -224,6 +235,8 @@ export interface DesignSpec {
     /** Printed before each value, e.g. "Phone:". Empty for none. */
     contactLabels: { phone: string; email: string; location: string };
     contactLabelWeight: number;
+    /** How the header's links (LinkedIn, GitHub) are printed. */
+    linkLook?: LinkLook;
     align: 'left' | 'center';
     nameSizePt: number;
     nameWeight: number;
@@ -245,7 +258,9 @@ export interface DesignSpec {
     transform: 'none' | 'uppercase' | 'capitalize';
     letterSpacingEm: number;
     align: 'left' | 'center';
-    style: 'plain' | 'underline' | 'rule-after' | 'filled-bar';
+    /** `rule-before`: a full-width rule above the heading, `ruleGapPt` above its baseline. */
+    style: 'plain' | 'underline' | 'rule-after' | 'rule-before' | 'filled-bar';
+    ruleGapPt?: number;
     color: string;
     spaceBeforePt: number;
     spaceAfterPt: number;
@@ -286,6 +301,10 @@ export interface DesignSpec {
      * on their own unbulleted line under the heading.
      */
     linksPlacement: 'bullet' | 'title-line' | 'own-line';
+    /** With `bullet` placement: one bullet per link ("• Github" / "• Live Link") rather than one row of all. */
+    linkEach?: boolean;
+    /** How entry links ("Github", "Live Link") are printed. */
+    linkLook?: LinkLook;
     linkSeparator: string;
     /** Like contactGapPt, for the separator between an entry's links. */
     linkGapPt: number | null;
@@ -364,7 +383,13 @@ export interface SourceLine {
 }
 
 export interface SourceLayout {
-  pages: { width: number; height: number; lines: SourceLine[] }[];
+  pages: {
+    width: number;
+    height: number;
+    lines: SourceLine[];
+    /** Horizontal rules drawn on the page, in points from the top-left. */
+    rules?: { x0: number; x1: number; y: number; thickness: number; color?: string }[];
+  }[];
 }
 
 // ---------------------------------------------------------------------------
