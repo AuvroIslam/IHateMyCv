@@ -5,7 +5,10 @@ import type { CareerLibrary, DesignSpec } from '@/types/cv';
 
 export async function GET() {
   try {
-    return Response.json(await getAppState());
+    const state = await getAppState();
+    // The page layout renders signed out (the login page); the API does not.
+    if (state.signIn && !state.account) return jsonError('Sign in to continue.', 401);
+    return Response.json(state);
   } catch (err) {
     return handleRouteError(err);
   }

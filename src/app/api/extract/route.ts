@@ -16,7 +16,7 @@ import {
 } from '@/lib/prompts';
 import { contentSchema, designBodySchema, designPageSchema, tagsSchema, type ExtractionResult } from '@/lib/schemas';
 import { mutateStore, readStore, savePageImages, saveSourceFonts, saveSourceLayout } from '@/lib/store';
-import { workspaceDir } from '@/lib/workspace';
+import { workspaceId } from '@/lib/workspace';
 import type { SourceLayout, UploadedFont } from '@/types/cv';
 import { consume } from '@/lib/limits';
 
@@ -143,8 +143,8 @@ export async function POST(request: Request) {
     });
 
     // Tagging outlives the request, so it takes this workspace along.
-    const dir = await workspaceDir();
-    after(() => tagLibrary(uploadedAt, dir));
+    const ws = await workspaceId();
+    after(() => tagLibrary(uploadedAt, ws));
 
     return Response.json({
       design,
@@ -165,9 +165,9 @@ export async function POST(request: Request) {
  * Writes matching keywords onto the library just built. Never blocks the
  * upload: until it lands, tailoring simply works from the text alone.
  */
-async function tagLibrary(uploadedAt: string, dir: string) {
+async function tagLibrary(uploadedAt: string, ws: string) {
   try {
-    const store = await readStore(dir);
+    const store = await readStore(ws);
     const entries = store.library?.entries ?? [];
     if (!entries.length) return;
 
@@ -194,7 +194,7 @@ async function tagLibrary(uploadedAt: string, dir: string) {
           if (!b.tags.length && t.bulletTags[k]) b.tags = clean(t.bulletTags[k]);
         });
       }
-    }, dir);
+    }, ws);
   } catch (err) {
     // Keywords are an optimisation; a failure here must not surface as an error.
     console.error('Background tagging failed:', err);

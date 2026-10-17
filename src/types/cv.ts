@@ -614,6 +614,10 @@ export interface AppStateResponse {
   design: DesignSpec | null;
   source: SourceMeta | null;
   hasApiKey: boolean;
+  /** The signed-in account, when this install uses sign-in. */
+  account?: { email?: string; name?: string } | null;
+  /** True when this install requires sign-in (Firebase). */
+  signIn?: boolean;
   baseDocument: CvDocumentData | null;
   /** The original CV's content, falling back to baseDocument on older stores. */
   originalDocument: CvDocumentData | null;

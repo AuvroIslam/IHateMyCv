@@ -1,12 +1,14 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import { SESSION_COOKIE, storageMode } from '@/lib/backend';
 import { LOCAL_WORKSPACE, WORKSPACE_COOKIE, WORKSPACE_ID, newWorkspaceId, perBrowserWorkspaces } from '@/lib/workspace-id';
 
 /**
  * Runs before every page and API request:
  * - With APP_PASSWORD set, asks for it (HTTP basic auth, any user name) -
  *   a gate for a private beta.
- * - Gives a browser without one its workspace cookie, visible to the
- *   request that created it as well as every later one.
+ * - With Firebase, sends visitors who are not signed in to /login.
+ * - With local files, gives a browser without one its workspace cookie,
+ *   visible to the request that created it as well as every later one.
  */
 export function proxy(request: NextRequest) {
   const password = process.env.APP_PASSWORD;
@@ -19,6 +21,19 @@ export function proxy(request: NextRequest) {
         headers: { 'www-authenticate': 'Basic realm="I Hate My CV", charset="UTF-8"' },
       });
     }
+  }
+
+  // With Firebase, the session cookie is the workspace. Pages need one (the
+  // API routes verify it themselves and answer 401 without it).
+  if (storageMode() === 'firebase') {
+    const { pathname, search } = request.nextUrl;
+    const open = pathname === '/login' || pathname.startsWith('/api/');
+    if (!open && !request.cookies.has(SESSION_COOKIE)) {
+      const login = new URL('/login', request.url);
+      if (pathname !== '/') login.searchParams.set('next', pathname + search);
+      return NextResponse.redirect(login);
+    }
+    return NextResponse.next();
   }
 
   const existing = request.cookies.get(WORKSPACE_COOKIE)?.value;

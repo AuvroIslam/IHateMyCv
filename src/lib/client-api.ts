@@ -25,6 +25,10 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
   } catch {
     throw new Error(`Unexpected response from ${url}.`);
   }
+  // The session ran out: back to the login page rather than a broken screen.
+  if (res.status === 401 && !url.startsWith('/api/session') && window.location.pathname !== '/login') {
+    window.location.assign(new URL(`/login?next=${encodeURIComponent(window.location.pathname)}`, window.location.origin).href);
+  }
   if (!res.ok) {
     const message =
       payload && typeof payload === 'object' && 'error' in payload

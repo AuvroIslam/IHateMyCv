@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { signOutEverywhere } from '@/lib/firebase-client';
 import { useApp } from './AppProvider';
 import { cx } from './ui/kit';
 
@@ -15,7 +16,9 @@ const LINKS = [
 
 export default function Nav() {
   const pathname = usePathname();
-  const { library, hasApiKey, loading } = useApp();
+  const { library, hasApiKey, loading, signIn, account } = useApp();
+  // Signed out (the login page): no app links to offer.
+  const signedOut = Boolean(signIn && !account);
 
   return (
     <header className="no-print sticky top-0 z-20 border-b border-line bg-background/85 backdrop-blur">
@@ -24,7 +27,7 @@ export default function Nav() {
           I Hate My CV
         </Link>
 
-        <nav className="flex items-center gap-1 text-sm">
+        <nav className={cx('flex items-center gap-1 text-sm', signedOut && 'hidden')}>
           {LINKS.map((link) => {
             const active =
               link.href === '/' ? pathname === '/' : pathname.startsWith(link.href);
@@ -49,10 +52,20 @@ export default function Nav() {
               No API key
             </span>
           )}
-          {library && (
+          {library && !signedOut && (
             <Link href="/upload" className="hover:text-foreground">
               Replace CV
             </Link>
+          )}
+          {account && (
+            <>
+              <span className="hidden max-w-[16rem] truncate sm:inline" title={account.email}>
+                {account.email ?? account.name}
+              </span>
+              <button onClick={() => void signOutEverywhere()} className="hover:text-foreground">
+                Sign out
+              </button>
+            </>
           )}
         </div>
       </div>

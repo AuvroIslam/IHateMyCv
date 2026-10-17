@@ -52,18 +52,26 @@ what the user states - it asks rather than inventing numbers. Turns save automat
 
 ## Releasing
 
+Production stores everything in Firebase: sign-in with Firebase Auth (Google or email and
+password), each user's library and CVs in Firestore, and their uploaded files in Firebase
+Storage. Development keeps the local `data/` folder and needs no sign-in. `STORAGE=firebase` or
+`STORAGE=files` overrides either default.
+
 | Setting | Purpose |
 | --- | --- |
 | `ANTHROPIC_API_KEY` | Required. |
-| `APP_PASSWORD` | Optional gate for a private beta: every request asks for it (HTTP basic auth). |
-| `WORKSPACES` | `per-browser` (the production default) gives each browser its own private workspace via a cookie; `shared` (the development default) is one workspace for a local install. |
+| `NEXT_PUBLIC_FIREBASE_API_KEY`, `_AUTH_DOMAIN`, `_PROJECT_ID`, `_STORAGE_BUCKET`, `_APP_ID` | The Firebase web app config. Public; needed at build time. |
+| `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` | From a Firebase service account key. Secret. |
+| `ALLOWED_EMAILS` | Optional comma-separated invite list; unset, anyone can sign up. |
+| `APP_PASSWORD` | Optional extra gate: every request asks for it (HTTP basic auth). |
 | `AI_MONTHLY_BUDGET_USD` | Hard monthly cap on AI spend (default 500). |
-| `LIMIT_SCALE` | Multiplies the per-day caps: 8 uploads, 40 tailored CVs, 150 chat messages and 40 imports per workspace (4x that per IP address). |
+| `LIMIT_SCALE` | Multiplies the per-day caps: 8 uploads, 40 tailored CVs, 150 chat messages and 40 imports per user (4x that per IP address). |
 
-Storage is the local filesystem, so the host needs a persistent disk (a VPS, Render, Railway or
-Fly.io with a volume). Serverless hosts such as Vercel discard files between requests and would
-need a hosted store first. Workspaces are tied to a browser: clearing cookies or switching
-devices starts a new, empty one until user accounts are added.
+The browser never touches Firestore or Storage: the server uses the service account, so the
+security rules should deny all client access (`allow read, write: if false;` in both).
+
+Deployed on Render as a Node web service: build `npm ci && npm run build`, start `npm start`,
+`NODE_VERSION=24`. Add the service's URL to Firebase Authentication's authorized domains.
 
 ## How it works
 

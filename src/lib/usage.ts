@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { DATA_DIR } from './store';
+import { storageMode } from './backend';
+import { db } from './firebase-admin';
+import { DATA_DIR } from './workspace';
 
 /**
  * Tokens used per API key per day, so work can move to a backup key before
@@ -148,34 +150,58 @@ export interface SpendFile {
 const SPEND_FILE = path.join(DATA_DIR, 'spend.json');
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 
+const freshMonth = (): SpendFile => ({ month: thisMonth(), usd: 0, byModel: {}, byTask: {} });
+
+/** With Firebase, one document a month, shared by every server instance. */
+const spendDoc = () => db().collection('meta').doc(`spend-${thisMonth()}`);
+
 export async function monthSpend(): Promise<SpendFile> {
+  if (storageMode() === 'firebase') {
+    const snap = await spendDoc().get();
+    return snap.exists ? (JSON.parse(snap.get('data') as string) as SpendFile) : freshMonth();
+  }
   try {
     const data = JSON.parse(await fs.readFile(SPEND_FILE, 'utf8')) as SpendFile;
     if (data.month === thisMonth()) return data;
   } catch {
     // Missing or unreadable: a fresh month.
   }
-  return { month: thisMonth(), usd: 0, byModel: {}, byTask: {} };
+  return freshMonth();
 }
 
-export function recordSpend(model: string, task: string, u: CallUsage, ms: number): Promise<number> {
+export async function recordSpend(model: string, task: string, u: CallUsage, ms: number): Promise<number> {
+  if (storageMode() === 'firebase') {
+    return db().runTransaction(async (tx) => {
+      const snap = await tx.get(spendDoc());
+      const data = snap.exists ? (JSON.parse(snap.get('data') as string) as SpendFile) : freshMonth();
+      const usd = addSpend(data, model, task, u, ms);
+      tx.set(spendDoc(), { data: JSON.stringify(data), usd: data.usd });
+      return usd;
+    });
+  }
   return serial(async () => {
     const data = await monthSpend();
-    const usd = priceOf(model, u);
-    const add = (t: Tally | undefined): Tally => ({
-      calls: (t?.calls ?? 0) + 1,
-      input: (t?.input ?? 0) + u.input,
-      output: (t?.output ?? 0) + u.output,
-      cacheRead: (t?.cacheRead ?? 0) + u.cacheRead,
-      cacheWrite: (t?.cacheWrite ?? 0) + u.cacheWrite,
-      usd: (t?.usd ?? 0) + usd,
-      ms: (t?.ms ?? 0) + ms,
-    });
-    data.usd += usd;
-    data.byModel[model] = add(data.byModel[model]);
-    data.byTask[task] = add(data.byTask[task]);
+    const usd = addSpend(data, model, task, u, ms);
     await fs.mkdir(DATA_DIR, { recursive: true });
     await fs.writeFile(SPEND_FILE, JSON.stringify(data, null, 1), 'utf8');
     return usd;
   });
+}
+
+/** Adds one call to a month's totals; returns what it cost. */
+function addSpend(data: SpendFile, model: string, task: string, u: CallUsage, ms: number): number {
+  const usd = priceOf(model, u);
+  const add = (t: Tally | undefined): Tally => ({
+    calls: (t?.calls ?? 0) + 1,
+    input: (t?.input ?? 0) + u.input,
+    output: (t?.output ?? 0) + u.output,
+    cacheRead: (t?.cacheRead ?? 0) + u.cacheRead,
+    cacheWrite: (t?.cacheWrite ?? 0) + u.cacheWrite,
+    usd: (t?.usd ?? 0) + usd,
+    ms: (t?.ms ?? 0) + ms,
+  });
+  data.usd += usd;
+  data.byModel[model] = add(data.byModel[model]);
+  data.byTask[task] = add(data.byTask[task]);
+  return usd;
 }
