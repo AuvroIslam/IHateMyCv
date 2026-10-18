@@ -1,5 +1,6 @@
 'use client';
 
+import type { PlanId, UsageKind } from '@/lib/plans';
 import type {
   Profile,
   SourceMeta,
@@ -13,6 +14,15 @@ import type {
 } from '@/types/cv';
 
 export type { AppStateResponse, CvSummary } from '@/types/cv';
+
+export interface BillingInfo {
+  plan: PlanId;
+  limits: Record<UsageKind, number>;
+  used: Record<UsageKind, number>;
+  subscription: { status: string; plan: PlanId; renewsAt?: string | null; endsAt?: string | null } | null;
+  /** False until the payment settings are in place. */
+  payments: boolean;
+}
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -89,6 +99,14 @@ export const api = {
 
   saveCv: (id: string, body: { data?: CvDocumentData; name?: string; chat?: ChatTurn[]; askedImport?: boolean }) =>
     call<{ cv: SavedCv }>(`/api/cvs/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+
+  billing: () => call<BillingInfo>('/api/billing'),
+
+  /** Where to pay for a plan: a checkout, or the billing portal when a plan is already running. */
+  checkout: (plan: PlanId) =>
+    call<{ url: string; portal?: boolean }>('/api/billing/checkout', { method: 'POST', body: JSON.stringify({ plan }) }),
+
+  billingPortal: () => call<{ url: string }>('/api/billing/portal'),
 
   deleteCv: (id: string) => call<{ ok: true }>(`/api/cvs/${id}`, { method: 'DELETE' }),
 

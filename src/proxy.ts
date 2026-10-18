@@ -10,9 +10,14 @@ import { LOCAL_WORKSPACE, WORKSPACE_COOKIE, WORKSPACE_ID, newWorkspaceId, perBro
  * - With local files, gives a browser without one its workspace cookie,
  *   visible to the request that created it as well as every later one.
  */
+/** Pages anyone can read, signed in or not: what the plans cost and the policies. */
+const PUBLIC = new Set(['/pricing', '/terms', '/privacy', '/refunds']);
+
 export function proxy(request: NextRequest) {
   const password = process.env.APP_PASSWORD;
-  if (password) {
+  // Lemon Squeezy cannot type a password; its webhook is signed instead.
+  const webhook = request.nextUrl.pathname === '/api/billing/webhook';
+  if (password && !webhook) {
     const header = request.headers.get('authorization') ?? '';
     let given: string | null = null;
     try {
@@ -32,7 +37,7 @@ export function proxy(request: NextRequest) {
   // API routes verify it themselves and answer 401 without it).
   if (storageMode() === 'firebase') {
     const { pathname, search } = request.nextUrl;
-    const open = pathname === '/login' || pathname.startsWith('/api/');
+    const open = pathname === '/login' || PUBLIC.has(pathname) || pathname.startsWith('/api/');
     if (!open && !request.cookies.has(SESSION_COOKIE)) {
       const login = new URL('/login', request.url);
       if (pathname !== '/') login.searchParams.set('next', pathname + search);

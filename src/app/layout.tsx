@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import { AppProvider } from '@/components/AppProvider';
+import Footer from '@/components/Footer';
 import Nav from '@/components/Nav';
 import { getAppState } from '@/lib/state';
 import './globals.css';
@@ -23,6 +24,7 @@ export default async function RootLayout({ children }: LayoutProps<'/'>) {
         <AppProvider initial={initial}>
           <Nav />
           <main className="flex-1">{children}</main>
+          <Footer />
         </AppProvider>
       </body>
     </html>

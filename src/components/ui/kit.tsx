@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes, useLayoutEffect, useRef } from 'react';
 
 export function cx(...parts: (string | false | null | undefined)[]): string {
@@ -148,9 +149,21 @@ export function Spinner({ className }: { className?: string }) {
 
 export function ErrorNote({ children }: { children: ReactNode }) {
   if (!children) return null;
+  // A plan's monthly limit points to the Pricing page: make that a link.
+  const pricing = typeof children === 'string' ? children.split('the Pricing page') : null;
   return (
     <p className="rounded-md border border-red-600/30 bg-red-600/8 px-3 py-2 text-sm text-red-700 dark:text-red-400">
-      {children}
+      {pricing && pricing.length === 2 ? (
+        <>
+          {pricing[0]}
+          <Link href="/pricing" className="font-medium underline">
+            the Pricing page
+          </Link>
+          {pricing[1]}
+        </>
+      ) : (
+        children
+      )}
     </p>
   );
 }

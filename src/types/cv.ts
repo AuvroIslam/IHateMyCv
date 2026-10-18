@@ -710,8 +710,26 @@ export interface TemplateSummary {
   pageCount: number;
 }
 
+/** A Lemon Squeezy subscription, as its last webhook described it. */
+export interface Billing {
+  plan: 'free' | 'pro' | 'power';
+  /** Lemon Squeezy's status: on_trial, active, paused, past_due, unpaid, cancelled, expired. */
+  status: string;
+  subscriptionId: string;
+  customerId?: string;
+  variantId?: string;
+  /** Next renewal. */
+  renewsAt?: string | null;
+  /** When access ends, once cancelled or expired. */
+  endsAt?: string | null;
+  testMode?: boolean;
+  updatedAt: string;
+}
+
 export interface Store {
   version: number;
+  /** The owner's subscription; absent on the free plan. */
+  billing?: Billing | null;
   library: CareerLibrary | null;
   /** Other uploaded CVs whose designs CVs can follow. */
   templates?: Template[];
@@ -750,6 +768,8 @@ export interface CvSummary {
 
 /** Everything the app shell needs to render. */
 export interface AppStateResponse {
+  /** The plan in force now, and the subscription behind it. */
+  plan: { id: 'free' | 'pro' | 'power'; status?: string; renewsAt?: string | null; endsAt?: string | null };
   library: CareerLibrary | null;
   /** The designs a CV can follow: the original's first, then each template. */
   templates: TemplateSummary[];

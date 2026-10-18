@@ -3,6 +3,7 @@ import { buildBaseDocument } from './assemble';
 import { storageMode } from './backend';
 import { currentUser } from './session';
 import { newId } from './id';
+import { effectivePlan } from './plans';
 import { mutateStore, readStore } from './store';
 import type { AppStateResponse, SavedCv, Store } from '@/types/cv';
 
@@ -27,6 +28,7 @@ export async function getAppState(): Promise<AppStateResponse> {
   const baseDocument =
     store.library && store.design ? buildBaseDocument(store.library, store.design) : null;
   return {
+    plan: { id: effectivePlan(store.billing), status: store.billing?.status, renewsAt: store.billing?.renewsAt, endsAt: store.billing?.endsAt },
     library: store.library,
     templates: [
       ...(store.source && !store.firstHidden

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { signOutEverywhere } from '@/lib/firebase-client';
+import { PLANS } from '@/lib/plans';
 import { useApp } from './AppProvider';
 import { cx } from './ui/kit';
 
@@ -15,7 +16,7 @@ const LINKS = [
 
 export default function Nav() {
   const pathname = usePathname();
-  const { hasApiKey, loading, signIn, account } = useApp();
+  const { hasApiKey, loading, signIn, account, plan } = useApp();
   // Signed out (the login page): no app links to offer.
   const signedOut = Boolean(signIn && !account);
 
@@ -55,6 +56,12 @@ export default function Nav() {
               No API key
             </span>
           )}
+          <Link
+            href="/pricing"
+            className={cx('rounded-md px-2 py-1 whitespace-nowrap hover:text-foreground', pathname === '/pricing' && 'text-foreground')}
+          >
+            {signedOut ? 'Pricing' : `${PLANS[plan.id].name} plan`}
+          </Link>
           {account && (
             <>
               <span className="hidden max-w-[16rem] truncate sm:inline" title={account.email}>
