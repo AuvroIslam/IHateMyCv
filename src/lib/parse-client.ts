@@ -94,15 +94,16 @@ export interface Run {
   drawn?: boolean;
 }
 
-export async function parseUpload(file: File): Promise<ParsedUpload> {
+/** `textOnly` skips the page renders and backgrounds, for reading a CV's words alone. */
+export async function parseUpload(file: File, { textOnly = false } = {}): Promise<ParsedUpload> {
   const lower = file.name.toLowerCase();
-  if (lower.endsWith('.pdf')) return parsePdf(file);
+  if (lower.endsWith('.pdf')) return parsePdf(file, textOnly);
   if (lower.endsWith('.docx')) return parseDocx(file);
   if (lower.endsWith('.txt') || lower.endsWith('.md')) return parseText(file);
   throw new Error('Unsupported file type. Upload a PDF, DOCX, TXT or MD file.');
 }
 
-async function parsePdf(file: File): Promise<ParsedUpload> {
+async function parsePdf(file: File, textOnly = false): Promise<ParsedUpload> {
   const pdfjs = await loadPdfjs();
   const buf = await file.arrayBuffer();
   // fontExtraProperties keeps each font's code -> Unicode maps, which the
@@ -217,10 +218,10 @@ async function parsePdf(file: File): Promise<ParsedUpload> {
       for (const l of links) dumpParts.push(`y=${l.y} x=${l.x} "${l.text}" -> ${l.url}`);
     }
 
-    if (pageNo <= MAX_VISION_PAGES) {
+    if (!textOnly && pageNo <= MAX_VISION_PAGES) {
       images.push(await renderPage(page, viewport));
     }
-    if (pageNo <= MAX_BACKGROUND_PAGES) {
+    if (!textOnly && pageNo <= MAX_BACKGROUND_PAGES) {
       backgrounds.push(await renderBackground(page, viewport, lines, marks.rules));
     }
     page.cleanup();

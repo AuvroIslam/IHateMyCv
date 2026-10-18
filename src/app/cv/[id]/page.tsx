@@ -183,7 +183,7 @@ export default function CvPage() {
                     : 'border-transparent text-subtle hover:text-foreground',
                 )}
               >
-                {key === 'chat' ? 'Chat' : key === 'content' ? 'Content' : 'Match report'}
+                {key === 'chat' ? 'Chat' : key === 'content' ? 'Edit' : 'Job match'}
               </button>
             ))}
           </div>
@@ -286,7 +286,7 @@ function MatchReportView({ report }: { report: NonNullable<SavedCv['report']> })
             ))}
           </ul>
           <p className="mt-2 text-xs text-subtle">
-            Still in your Career Library — add any of these back from the Content tab.
+            Still in My Info — add any of these back from the Edit tab or by asking in Chat.
           </p>
         </div>
       )}

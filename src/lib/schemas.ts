@@ -391,3 +391,28 @@ export const tailorSchema = z.object({
 });
 
 export type TailorResult = z.infer<typeof tailorSchema>;
+
+/** A CV read into My Info: everything about the person, not how the page was laid out. */
+export const profileImportSchema = z.object({
+  personal: contentShape.personal,
+  summary: z.string().nullable().describe('The summary or profile paragraph(s), verbatim; null if none'),
+  about: z
+    .array(z.string())
+    .describe(
+      'One line per fact that is not a job, project, achievement, degree or skill: languages, certifications, volunteering, interests, publications, availability. Keep the wording of the CV, prefixed with what it is, e.g. "Languages: Bangla (native), English (fluent)".',
+    ),
+  entries: z.array(
+    z.object({
+      kind: z.enum(['experience', 'projects', 'achievements', 'education']),
+      title: z.string().describe('The role, project name, award or degree'),
+      subtitle: z.string().nullable().describe('The organisation (company, institution, issuer) or tech stack'),
+      location: z.string().nullable(),
+      dateText: z.string().nullable().describe('Dates copied exactly as printed'),
+      link: z.string().nullable().describe('URL the title itself links to, if any'),
+      links: entryLinksSchema,
+      bullets: z.array(z.string()).describe('Bullet text and detail lines, verbatim'),
+    }),
+  ),
+  skills: z.array(z.object({ category: z.string().describe('"" if the CV gives none'), skills: z.array(z.string()) })),
+});
+export type ProfileImport = z.infer<typeof profileImportSchema>;

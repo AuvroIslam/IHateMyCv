@@ -44,38 +44,70 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
+const freshDay = (): UsageFile => ({ day: today(), keys: {}, exhausted: [] });
+
+/** With Firebase, one document shared by every server instance (a local file would reset on each deploy). */
+const usageDoc = () => db().collection('meta').doc('openai-usage');
+
 async function read(): Promise<UsageFile> {
   try {
-    const data = JSON.parse(await fs.readFile(FILE, 'utf8')) as UsageFile;
-    if (data.day === today()) return data;
+    const data =
+      storageMode() === 'firebase'
+        ? await usageDoc()
+            .get()
+            .then((snap) => (snap.exists ? (JSON.parse(snap.get('data') as string) as UsageFile) : null))
+        : (JSON.parse(await fs.readFile(FILE, 'utf8')) as UsageFile);
+    if (data?.day === today()) return data;
   } catch {
     // Missing or unreadable: start the day fresh.
   }
-  return { day: today(), keys: {}, exhausted: [] };
+  return freshDay();
 }
 
-async function write(data: UsageFile) {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(FILE, JSON.stringify(data, null, 1), 'utf8');
+/** Read-modify-write of today's counts: a transaction with Firebase, serialised locally. */
+function update(fn: (data: UsageFile) => void): Promise<void> {
+  if (storageMode() === 'firebase') {
+    return db().runTransaction(async (tx) => {
+      const snap = await tx.get(usageDoc());
+      const stored = snap.exists ? (JSON.parse(snap.get('data') as string) as UsageFile) : null;
+      const data = stored?.day === today() ? stored : freshDay();
+      fn(data);
+      tx.set(usageDoc(), { data: JSON.stringify(data), day: data.day });
+    });
+  }
+  return serial(async () => {
+    const data = await read();
+    fn(data);
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    await fs.writeFile(FILE, JSON.stringify(data, null, 1), 'utf8');
+  });
 }
 
 export function recordUsage(key: string, tier: Tier, tokens: number): Promise<void> {
-  return serial(async () => {
-    const data = await read();
-    const fp = fingerprint(key);
-    const entry = (data.keys[fp] ??= {});
+  return update((data) => {
+    const entry = (data.keys[fingerprint(key)] ??= {});
     entry[tier] = (entry[tier] ?? 0) + tokens;
-    await write(data);
   });
 }
 
 export function markExhausted(key: string): Promise<void> {
-  return serial(async () => {
-    const data = await read();
+  return update((data) => {
     const fp = fingerprint(key);
     if (!data.exhausted.includes(fp)) data.exhausted.push(fp);
-    await write(data);
   });
+}
+
+/** Keys with free allowance left today for a tier, in their configured order. */
+export async function freeKeys(keys: string[], tier: Tier): Promise<string[]> {
+  const data = await read();
+  const usedOf = (k: string) => data.keys[fingerprint(k)]?.[tier] ?? 0;
+  return keys.filter((k) => !data.exhausted.includes(fingerprint(k)) && usedOf(k) + RESERVE[tier] < DAILY_FREE[tier]);
+}
+
+/** Keys OpenAI has not refused today: billing still works on these once the free allowance is spent. */
+export async function usableKeys(keys: string[]): Promise<string[]> {
+  const data = await read();
+  return keys.filter((k) => !data.exhausted.includes(fingerprint(k)));
 }
 
 /**
@@ -84,11 +116,8 @@ export function markExhausted(key: string): Promise<void> {
  * when every allowance is spent.
  */
 export async function orderKeys(keys: string[], tier: Tier): Promise<string[]> {
-  const data = await read();
-  const usedOf = (k: string) => data.keys[fingerprint(k)]?.[tier] ?? 0;
-  const free = (k: string) =>
-    !data.exhausted.includes(fingerprint(k)) && usedOf(k) + RESERVE[tier] < DAILY_FREE[tier];
-  return [...keys.filter(free), ...keys.filter((k) => !free(k))];
+  const free = await freeKeys(keys, tier);
+  return [...free, ...keys.filter((k) => !free.includes(k))];
 }
 
 /** Today's usage per key, for display. */
@@ -103,8 +132,9 @@ export async function usageToday(keys: string[]) {
 }
 
 // ---------------------------------------------------------------------------
-// Spend (Anthropic). Billed per token, against a monthly budget, so every
-// call is priced and added to the month's total.
+// Spend. Billed per token, against a monthly budget, so every billed call is
+// priced and added to the month's total (OpenAI calls only once they are past
+// the free allowance).
 
 /** USD per million tokens: input, 5-minute cache write, cache read, output. */
 const PRICES: { match: RegExp; in: number; write: number; read: number; out: number; longIn?: number; longOut?: number }[] = [
@@ -115,6 +145,11 @@ const PRICES: { match: RegExp; in: number; write: number; read: number; out: num
   // Haiku 5.5 charges more once a prompt passes 100K tokens.
   { match: /haiku-5-5/, in: 0.1, write: 0.125, read: 0.01, out: 0.5, longIn: 0.5, longOut: 2.5 },
   { match: /fable|mythos/, in: 10, write: 12.5, read: 0.25, out: 50 },
+  // OpenAI, billed only past the free daily allowance. Estimates on the high
+  // side, so the budget errs towards stopping early.
+  { match: /gpt-5[.\d]*-nano/, in: 0.1, write: 0.1, read: 0.01, out: 0.8 },
+  { match: /gpt-5[.\d]*-mini/, in: 0.75, write: 0.75, read: 0.075, out: 4.5 },
+  { match: /gpt-5/, in: 2.5, write: 2.5, read: 0.25, out: 15 },
 ];
 
 export interface CallUsage {

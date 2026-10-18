@@ -6,30 +6,38 @@ import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import OpenAI from 'openai';
 import { zodTextFormat } from 'openai/helpers/zod';
 import { toJSONSchema, type z } from 'zod';
-import { markExhausted, monthSpend, orderKeys, recordSpend, recordUsage, type Tier } from './usage';
+import { freeKeys, markExhausted, monthSpend, orderKeys, recordSpend, recordUsage, type Tier, usableKeys } from './usage';
 
 /** Every job the app sends to a model. */
-export type Task = 'cv_design' | 'cv_content' | 'cv_tags' | 'library_import' | 'tailoring_plan' | 'cv_chat';
+export type Task = 'cv_design' | 'cv_content' | 'cv_tags' | 'library_import' | 'profile_import' | 'tailoring_plan' | 'cv_chat';
 
 /**
  * Claude model per job, each the cheapest that does it well. Override any
  * with AI_MODEL_<TASK> in .env.local (AI_MODEL_TAILORING_PLAN=claude-opus-5-5).
  *
  * - cv_design: reads layout and typography off page images.
- * - cv_content: copies every entry and bullet verbatim into the library.
+ * - cv_content, profile_import: copy every entry and bullet verbatim.
  * - tailoring_plan: judges which experience fits a job - the result users see.
  * - cv_tags, library_import: short, mechanical restructuring.
  */
 const CLAUDE_MODELS: Record<Task, string> = {
   cv_design: 'claude-sonnet-5-5',
   cv_content: 'claude-sonnet-5-5',
+  profile_import: 'claude-sonnet-5-5',
   tailoring_plan: 'claude-sonnet-5-5',
   cv_chat: 'claude-sonnet-5-5',
   cv_tags: 'claude-haiku-5-5',
   library_import: 'claude-haiku-5-5',
 };
 
-/** The OpenAI fallback, used only without an Anthropic key. */
+/**
+ * Tasks run on OpenAI's free daily allowance whenever OpenAI keys are set,
+ * even with an Anthropic key: reading CVs into My Info is frequent, and the
+ * allowance makes it free. See callOpenAiFree.
+ */
+const OPENAI_FREE_TASKS = new Set<Task>(['profile_import']);
+
+/** The OpenAI models: the fallback without an Anthropic key, and OPENAI_FREE_TASKS. */
 const OPENAI_MODELS = {
   main: process.env.OPENAI_MODEL?.trim() || 'gpt-5.4',
   fast: process.env.OPENAI_FAST_MODEL?.trim() || 'gpt-5.4-mini',
@@ -136,15 +144,18 @@ export async function generateStructured<S extends z.ZodType>({
   tier?: 'main' | 'fast';
   effort?: Effort;
 }): Promise<z.infer<S>> {
-  const which = provider();
+  const free = OPENAI_FREE_TASKS.has(name) && openAiKeys().length > 0;
+  const which = free ? 'openai' : provider();
   if (!which) throw new MissingApiKeyError();
-  const model = modelFor(name, tier);
+  const model = free ? `${OPENAI_MODELS.main}>${OPENAI_MODELS.fast}` : modelFor(name, tier);
   const cacheKey = createHash('sha256')
     .update(JSON.stringify([which, model, effort, name, system, user, images.map((i) => i.data.length + i.data.slice(-64)), toJSONSchema(schema)]))
     .digest('hex')
     .slice(0, 32);
   const req = { system, user, images, schema, name, effort };
-  return cached(cacheKey, () => (which === 'anthropic' ? callClaude(model, req) : callOpenAi(model, req)));
+  return cached(cacheKey, () =>
+    free ? callOpenAiFree(req) : which === 'anthropic' ? callClaude(model, req) : callOpenAi(model, req),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -232,43 +243,61 @@ function isOutOfQuota(err: unknown): boolean {
   return err instanceof OpenAI.APIError && (err.code === 'insufficient_quota' || /quota/i.test(err.message));
 }
 
+/** One request on one key. Returns the result and the tokens it took. */
+async function openAiOnce<S extends z.ZodType>(apiKey: string, model: string, req: Request<S>) {
+  const response = await new OpenAI({ apiKey }).responses.parse({
+    model,
+    ...(supportsReasoning(model) ? { reasoning: { effort: req.effort } } : {}),
+    instructions: req.system,
+    input: [
+      {
+        role: 'user',
+        content: [
+          { type: 'input_text', text: req.user },
+          ...req.images.map((img) => ({
+            type: 'input_image' as const,
+            detail: 'high' as const,
+            image_url: `data:${img.mediaType};base64,${img.data}`,
+          })),
+        ],
+      },
+    ],
+    text: { format: zodTextFormat(req.schema, req.name) },
+  });
+  const usage = response.usage;
+  const tokens = usage?.total_tokens ?? 0;
+
+  const refused = response.output.some(
+    (item) => item.type === 'message' && item.content.some((c) => c.type === 'refusal'),
+  );
+  if (refused) throw new AiOutputError('The model declined to process this request.', 422);
+  if (response.status === 'incomplete') {
+    throw new AiOutputError('The model stopped before finishing. Try again.', 502);
+  }
+  if (response.output_parsed == null) {
+    throw new AiOutputError('The model returned an unreadable result. Try again.', 502);
+  }
+  return {
+    parsed: response.output_parsed as z.infer<S>,
+    tokens,
+    usage: {
+      input: (usage?.input_tokens ?? 0) - (usage?.input_tokens_details?.cached_tokens ?? 0),
+      cacheRead: usage?.input_tokens_details?.cached_tokens ?? 0,
+      cacheWrite: 0,
+      output: usage?.output_tokens ?? 0,
+    },
+  };
+}
+
+/** The fallback without an Anthropic key: free allowance first, then billed. */
 async function callOpenAi<S extends z.ZodType>(model: string, req: Request<S>): Promise<z.infer<S>> {
   const tier = tierOf(model);
   let lastError: unknown;
   for (const apiKey of await orderKeys(openAiKeys(), tier)) {
     try {
-      const response = await new OpenAI({ apiKey }).responses.parse({
-        model,
-        ...(supportsReasoning(model) ? { reasoning: { effort: req.effort } } : {}),
-        instructions: req.system,
-        input: [
-          {
-            role: 'user',
-            content: [
-              { type: 'input_text', text: req.user },
-              ...req.images.map((img) => ({
-                type: 'input_image' as const,
-                detail: 'high' as const,
-                image_url: `data:${img.mediaType};base64,${img.data}`,
-              })),
-            ],
-          },
-        ],
-        text: { format: zodTextFormat(req.schema, req.name) },
-      });
-      await recordUsage(apiKey, tier, response.usage?.total_tokens ?? 0);
-
-      const refused = response.output.some(
-        (item) => item.type === 'message' && item.content.some((c) => c.type === 'refusal'),
-      );
-      if (refused) throw new AiOutputError('The model declined to process this request.', 422);
-      if (response.status === 'incomplete') {
-        throw new AiOutputError('The model stopped before finishing. Try again.', 502);
-      }
-      if (response.output_parsed == null) {
-        throw new AiOutputError('The model returned an unreadable result. Try again.', 502);
-      }
-      return response.output_parsed as z.infer<S>;
+      const r = await openAiOnce(apiKey, model, req);
+      await recordUsage(apiKey, tier, r.tokens);
+      return r.parsed;
     } catch (err) {
       // Out of quota on this key: note it for the day and try the next one.
       if (!isOutOfQuota(err)) throw err;
@@ -277,4 +306,44 @@ async function callOpenAi<S extends z.ZodType>(model: string, req: Request<S>): 
     }
   }
   throw lastError;
+}
+
+/**
+ * Best quality for free, then the cheapest billed: the main model while any
+ * key has large-model allowance left, then the mini model on its (ten times
+ * larger) allowance, and only when every allowance is spent, the mini model
+ * billed - priced into the month like any other paid call.
+ */
+async function callOpenAiFree<S extends z.ZodType>(req: Request<S>): Promise<z.infer<S>> {
+  const keys = openAiKeys();
+  let lastError: unknown;
+  const attempt = async (apiKey: string, model: string, billed: boolean) => {
+    const started = Date.now();
+    const r = await openAiOnce(apiKey, model, req);
+    await recordUsage(apiKey, tierOf(model), r.tokens);
+    if (billed) await recordSpend(model, req.name, r.usage, Date.now() - started);
+    return r.parsed;
+  };
+  for (const model of [OPENAI_MODELS.main, OPENAI_MODELS.fast]) {
+    for (const apiKey of await freeKeys(keys, tierOf(model))) {
+      try {
+        return await attempt(apiKey, model, false);
+      } catch (err) {
+        if (!isOutOfQuota(err)) throw err;
+        await markExhausted(apiKey);
+        lastError = err;
+      }
+    }
+  }
+  await assertBudget();
+  for (const apiKey of await usableKeys(keys)) {
+    try {
+      return await attempt(apiKey, OPENAI_MODELS.fast, true);
+    } catch (err) {
+      if (!isOutOfQuota(err)) throw err;
+      await markExhausted(apiKey);
+      lastError = err;
+    }
+  }
+  throw lastError ?? new AiOutputError('Every OpenAI key is out of quota today. Try again tomorrow.', 429);
 }

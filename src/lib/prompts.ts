@@ -230,3 +230,25 @@ ${jobDescription}
 
 Select the components that make the strongest honest case for this job. Return a plan for every section listed above, even if a section's selection is unchanged.`;
 }
+
+/** Reading another CV into My Info: content only, verbatim. */
+export const PROFILE_IMPORT_SYSTEM = `You read a CV and record everything it says about its owner, so it can be added to their personal record. The record is not a CV: section titles, order and layout do not matter, only the facts.
+
+${SOURCE_NOTE}
+
+- Copy text VERBATIM: titles, dates ("Jun 2023 - Aug 2023"), bullets. Never rewrite, shorten, merge or improve. Leave out bullet glyphs. Rejoin words hyphenated across lines.
+- Sort every entry into a kind: experience (jobs, internships, teaching, research positions), projects, achievements (awards, competitions, scholarships, honours) or education (degrees, schools, courses).
+- ${ORG_TITLE_RULE} Otherwise the title is the line printed first or most prominently.
+- Lines under an entry without a bullet glyph ("2nd Runners-Up", "CGPA: 3.63") are still its bullets.
+- Anything that is not an entry or a skill (languages, certifications, volunteering, interests, publications) goes in about, one fact per line, in the CV's words.
+- Skills keep their categories and wording. Skills set out in a grid or in two columns put two categories on one printed line: tell them apart by x position and never join two category names into one.
+- The LINKS lists are the only source of URLs. A row of link labels under an entry ("Github • Live Link") becomes that entry's links, matched by y; never a bullet. Never invent a URL.
+- Never invent anything. Leave out what the CV does not say.`;
+
+export function profileImportUserPrompt(textDump: string, fileName: string): string {
+  return `CV file: ${fileName}
+
+<cv>
+${textDump}
+</cv>`;
+}

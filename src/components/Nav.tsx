@@ -8,11 +8,8 @@ import { cx } from './ui/kit';
 
 const LINKS = [
   { href: '/', label: 'Home' },
-  { href: '/profile', label: 'Profile' },
-  { href: '/library', label: 'Career Library' },
-  { href: '/design', label: 'Design' },
-  { href: '/tailor', label: 'Tailor' },
-  { href: '/chat', label: 'Chat' },
+  { href: '/profile', label: 'My Info' },
+  { href: '/tailor', label: 'Tailor a CV' },
   { href: '/cvs', label: 'My CVs' },
 ];
 
@@ -31,10 +28,12 @@ export default function Nav() {
 
         <nav className={cx('flex items-center gap-1 text-sm', signedOut && 'hidden')}>
           {LINKS.map((link) => {
+            // A single CV, and the chat shortcut that opens one, belong to My CVs.
             const active =
               link.href === '/'
                 ? pathname === '/'
-                : pathname.startsWith(link.href) || (link.href === '/chat' && pathname.startsWith('/cv/'));
+                : pathname.startsWith(link.href) ||
+                  (link.href === '/cvs' && (pathname.startsWith('/cv/') || pathname === '/chat'));
             return (
               <Link
                 key={link.href}
@@ -57,8 +56,11 @@ export default function Nav() {
             </span>
           )}
           {library && !signedOut && (
-            <Link href="/upload" className="hover:text-foreground">
-              Replace CV
+            <Link
+              href="/design"
+              className={cx('hover:text-foreground', (pathname === '/design' || pathname === '/library') && 'text-foreground')}
+            >
+              Original CV
             </Link>
           )}
           {account && (

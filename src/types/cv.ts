@@ -648,19 +648,29 @@ export interface SourceMeta {
 }
 
 /** The kinds of item a Profile holds, each matched to CV sections of the same type. */
-export type ProfileKind = 'projects' | 'experience' | 'achievements';
+export type ProfileKind = 'projects' | 'experience' | 'achievements' | 'education';
+
+export interface ProfileSkills {
+  id: string;
+  category: string;
+  skills: string[];
+}
 
 /**
- * General information about the owner, kept apart from any CV: not shaped by
- * the uploaded CV's sections or titles, and never printed directly. Tailoring
- * and the chat draw on it alongside the Career Library.
+ * Everything about the owner, kept apart from any CV ("My Info"): not shaped
+ * by the uploaded CV's sections or titles, and never printed directly. It is
+ * the source of truth for tailoring and the chat, over the Career Library
+ * the upload produced (see withProfile).
  */
 export interface Profile {
   personal: PersonalInfo;
+  /** Their own summary, offered first when a CV needs one. */
+  summary?: string;
   /** Everything else true about them (languages, certifications, interests, goals), in their own words. */
   about: string;
-  /** Projects, jobs and achievements; each entry's sectionId is its ProfileKind. */
+  /** Projects, jobs, achievements and education; each entry's sectionId is its ProfileKind. */
   entries: LibraryEntry[];
+  skills?: ProfileSkills[];
 }
 
 export interface Store {

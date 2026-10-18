@@ -3,29 +3,30 @@
 import Link from 'next/link';
 import { useApp } from '@/components/AppProvider';
 import { Button, LocalDate, Panel, Spinner } from '@/components/ui/kit';
+import { PROFILE_KINDS, normalizeProfile } from '@/lib/profile';
 
 const STEPS = [
   {
-    title: 'Upload once',
-    body: 'We capture your CV’s design — fonts, margins, rules, spacing, section order — and break the content into reusable components.',
+    title: 'Upload your CV',
+    body: 'We capture its design exactly (fonts, spacing, layout) so every CV you make looks like yours.',
   },
   {
-    title: 'Build your library',
-    body: 'Add the projects, roles, bullets and skills that never fit on one page. The library is everything you could say about yourself.',
+    title: 'Add everything about you',
+    body: 'Every job, project and achievement in My Info, including what never fit on one page. Import older CVs in a click.',
   },
   {
-    title: 'Paste a job, get a CV',
-    body: 'The AI picks and reorders the components that match, and renders them into your original design. Same look, different argument.',
+    title: 'Tailor a CV for each job',
+    body: 'Paste a job posting. The AI picks what fits best, in your design. Fine-tune it by chatting, then export a PDF.',
   },
 ];
 
 export default function HomePage() {
-  const { library, design, source, cvs, loading } = useApp();
+  const { library, design, source, cvs, profile, loading } = useApp();
 
   if (loading) {
     return (
       <div className="flex items-center justify-center py-32 text-sm text-subtle">
-        <Spinner className="mr-2" /> Loading your Career Library…
+        <Spinner className="mr-2" /> Loading…
       </div>
     );
   }
@@ -33,102 +34,68 @@ export default function HomePage() {
   if (!library || !design) {
     return (
       <div className="mx-auto max-w-4xl px-5 py-20">
-        <h1 className="text-4xl font-semibold tracking-tight">
-          Stop rewriting your CV for every job.
-        </h1>
+        <h1 className="text-4xl font-semibold tracking-tight">Stop rewriting your CV for every job.</h1>
         <p className="mt-4 max-w-2xl text-lg text-subtle">
-          Upload your CV once, build a Career Library, and generate a tailored CV for every job —
-          without redesigning it from scratch.
+          Upload your CV once, keep everything about you in one place, and get a tailored CV for every job, in your
+          own design.
         </p>
         <div className="mt-8">
           <Link href="/upload">
             <Button variant="primary">Upload your CV</Button>
           </Link>
         </div>
-
-        <div className="mt-16 grid gap-4 sm:grid-cols-3">
-          {STEPS.map((step, i) => (
-            <Panel key={step.title} className="p-5">
-              <span className="text-xs font-medium text-subtle">0{i + 1}</span>
-              <p className="mt-2 font-medium">{step.title}</p>
-              <p className="mt-2 text-sm text-subtle">{step.body}</p>
-            </Panel>
-          ))}
-        </div>
-
-        <Panel className="mt-8 p-5">
-          <p className="text-sm font-medium">Your design is the one thing we never touch.</p>
-          <p className="mt-2 text-sm text-subtle">
-            Tailoring changes which components appear and in what order. It does not restyle your
-            CV, move your sections around, or rewrite your bullets into someone else’s voice.
-          </p>
-        </Panel>
+        <Steps />
       </div>
     );
   }
 
-  const entryCount = library.entries.length;
-  const bulletCount = library.entries.reduce((n, e) => n + e.bullets.length, 0);
-  const skillCount = library.skillGroups.reduce((n, g) => n + g.skills.length, 0);
+  const info = normalizeProfile(profile);
+  const counts = PROFILE_KINDS.map((k) => ({ ...k, n: info.entries.filter((e) => e.sectionId === k.kind).length })).filter((k) => k.n);
+  const firstName = (info.personal.fullName || library.personal.fullName).trim().split(/\s+/)[0] ?? '';
+  const hello = firstName ? firstName[0].toUpperCase() + firstName.slice(1).toLowerCase() : '';
 
   return (
     <div className="mx-auto max-w-5xl px-5 py-10">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            {library.personal.fullName || 'Your Career Library'}
-          </h1>
-          <p className="mt-1 text-sm text-subtle">
-            {source
-              ? <>Captured from {source.fileName} on <LocalDate iso={source.uploadedAt} />.</>
-              : 'Career Library ready.'}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Link href="/chat">
-            <Button>Edit by chat</Button>
-          </Link>
-          <Link href="/tailor">
-            <Button variant="primary">Tailor for a job</Button>
-          </Link>
-        </div>
-      </div>
+      <h1 className="text-2xl font-semibold tracking-tight">{hello ? `Hi, ${hello}` : 'Welcome back'}</h1>
+      <p className="mt-1 text-sm text-subtle">Three steps to a CV for any job.</p>
 
-      <div className="mt-6 grid gap-3 sm:grid-cols-4">
-        <Stat label="Sections" value={design.sections.length} />
-        <Stat label="Components" value={entryCount} />
-        <Stat label="Bullets" value={bulletCount} />
-        <Stat label="Skills" value={skillCount} />
-      </div>
-
-      <div className="mt-8 grid gap-4 md:grid-cols-2">
-        <Panel className="p-5">
-          <p className="font-medium">Career Library</p>
-          <p className="mt-1 text-sm text-subtle">
-            Add the work that did not fit on one page. The more the library holds, the sharper each
-            tailored CV can be.
-          </p>
-          <Link href="/library" className="mt-4 inline-block">
-            <Button>Open library</Button>
-          </Link>
-        </Panel>
-
-        <Panel className="p-5">
-          <p className="font-medium">Generated CVs</p>
-          <p className="mt-1 text-sm text-subtle">
-            {cvs.length === 0
-              ? 'Nothing generated yet. Paste a job description to make your first tailored CV.'
-              : `${cvs.length} tailored ${cvs.length === 1 ? 'CV' : 'CVs'} so far.`}
-          </p>
-          <Link href="/cvs" className="mt-4 inline-block">
-            <Button>View CVs</Button>
-          </Link>
-        </Panel>
+      <div className="mt-6 grid gap-4 md:grid-cols-3">
+        <Card
+          n={1}
+          title="My Info"
+          body={
+            counts.length
+              ? `${counts.map((k) => `${k.n} ${k.n === 1 ? k.one : k.label.toLowerCase()}`).join(' · ')}. Add anything that never fit on the page.`
+              : 'Not filled in yet. Import your CV in one click, then add everything else about you.'
+          }
+          href="/profile"
+          action={counts.length ? 'Open My Info' : 'Fill in My Info'}
+          primary={!counts.length}
+        />
+        <Card
+          n={2}
+          title="Tailor a CV"
+          body="Paste a job posting and get a CV that fits it, in your design."
+          href="/tailor"
+          action="Tailor a CV"
+          primary={counts.length > 0}
+        />
+        <Card
+          n={3}
+          title="Edit and export"
+          body={
+            cvs.length
+              ? 'Open a CV to change it by chatting ("make it one page") or by hand, then export a PDF.'
+              : 'Your CVs appear here. Chat with any of them to change words, colours or fonts.'
+          }
+          href={cvs.length ? '/cvs' : '/chat'}
+          action={cvs.length ? `My CVs (${cvs.length})` : 'Try the chat'}
+        />
       </div>
 
       {cvs.length > 0 && (
         <div className="mt-8">
-          <p className="text-sm font-medium">Recent</p>
+          <p className="text-sm font-medium">Recent CVs</p>
           <ul className="mt-3 divide-y divide-line overflow-hidden rounded-lg border border-line">
             {cvs.slice(0, 5).map((cv) => (
               <li key={cv.id}>
@@ -147,15 +114,61 @@ export default function HomePage() {
           </ul>
         </div>
       )}
+
+      {source && (
+        <p className="mt-8 text-xs text-subtle">
+          Design from <span className="text-foreground">{source.fileName}</span>, uploaded{' '}
+          <LocalDate iso={source.uploadedAt} />.{' '}
+          <Link href="/design" className="underline hover:text-foreground">
+            View original
+          </Link>{' '}
+          ·{' '}
+          <Link href="/upload" className="underline hover:text-foreground">
+            Use a different CV
+          </Link>
+        </p>
+      )}
     </div>
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Card({
+  n,
+  title,
+  body,
+  href,
+  action,
+  primary,
+}: {
+  n: number;
+  title: string;
+  body: string;
+  href: string;
+  action: string;
+  primary?: boolean;
+}) {
   return (
-    <Panel className="px-4 py-3">
-      <p className="text-2xl font-semibold tabular-nums">{value}</p>
-      <p className="text-xs text-subtle">{label}</p>
+    <Panel className="flex flex-col p-5">
+      <span className="text-xs font-medium text-subtle">Step {n}</span>
+      <p className="mt-1 font-medium">{title}</p>
+      <p className="mt-1 flex-1 text-sm text-subtle">{body}</p>
+      <Link href={href} className="mt-4">
+        <Button variant={primary ? 'primary' : undefined}>{action}</Button>
+      </Link>
     </Panel>
+  );
+}
+
+function Steps() {
+  return (
+    <div className="mt-16 grid gap-4 sm:grid-cols-3">
+      {STEPS.map((step, i) => (
+        <Panel key={step.title} className="p-5">
+          <span className="text-xs font-medium text-subtle">0{i + 1}</span>
+          <p className="mt-2 font-medium">{step.title}</p>
+          <p className="mt-2 text-sm text-subtle">{step.body}</p>
+        </Panel>
+      ))}
+    </div>
   );
 }

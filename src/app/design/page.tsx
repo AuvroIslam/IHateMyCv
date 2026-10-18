@@ -114,10 +114,17 @@ export default function DesignPage() {
     <div className="mx-auto max-w-[1400px] px-5 py-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Design check</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Original CV</h1>
           <p className="mt-1 max-w-2xl text-sm text-subtle">
-            Your original CV next to our rebuild of it, with the same content. If anything has
-            drifted, correct it here once and every CV you generate picks up the fix.
+            The CV whose design every tailored CV uses, next to our rebuild of it. If anything has drifted,
+            correct it here once and every CV picks up the fix.{' '}
+            <Link href="/upload" className="underline">
+              Use a different CV
+            </Link>{' '}
+            ·{' '}
+            <Link href="/library" className="underline">
+              Edit its content section by section
+            </Link>
           </p>
         </div>
         <div className="flex items-center gap-2">

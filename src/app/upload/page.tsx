@@ -16,7 +16,7 @@ type Stage = 'idle' | 'parsing' | 'extracting' | 'done';
 const STEPS = [
   { key: 'parsing', label: 'Reading the file', detail: 'Pulling text, positions and fonts out of your CV.' },
   { key: 'extracting', label: 'Learning the design', detail: 'Measuring the layout and cataloguing every component.' },
-  { key: 'done', label: 'Career Library built', detail: 'Your CV is now a reusable set of parts.' },
+  { key: 'done', label: 'Ready', detail: 'Your design is captured and your content is ready to tailor.' },
 ] as const;
 
 /**
@@ -116,12 +116,12 @@ export default function UploadPage() {
 
       {existingLibrary && stage === 'idle' && (
         <Panel className="mt-6 border-amber-500/40 p-4 text-sm">
-          <p className="font-medium">You already have a Career Library.</p>
+          <p className="font-medium">You already have an original CV.</p>
           <p className="mt-1 text-subtle">
-            Uploading a new CV replaces the captured design, rebuilds the library, and clears
-            previously generated CVs. To just add material, edit the{' '}
-            <Link href="/library" className="underline">
-              Career Library
+            Uploading a new one replaces the design every CV uses and clears the CVs made so far. My Info is
+            kept. To only add information from another CV, use{' '}
+            <Link href="/profile" className="underline">
+              Import from CVs in My Info
             </Link>{' '}
             instead.
           </p>
@@ -218,17 +218,16 @@ export default function UploadPage() {
             </span>
           </div>
           <p className="mt-1 max-w-2xl text-sm text-subtle">
-            Check it against your original first: the design check overlays the two so any drift
-            in fonts or spacing shows up, and a fix there carries into every tailored CV. Wrong
-            content is corrected in the Career Library.
+            Next, add everything about you to My Info (your CV can be imported there in one click), then tailor a
+            CV for a job. You can compare our rebuild with your original under Original CV at any time.
           </p>
 
           <div className="mt-5 flex flex-wrap gap-2">
-            <Button variant="primary" onClick={() => router.push('/design')}>
-              Check the design
+            <Button variant="primary" onClick={() => router.push('/profile')}>
+              Go to My Info
             </Button>
-            <Button onClick={() => router.push('/library')}>Review the Career Library</Button>
-            <Button onClick={() => router.push('/tailor')}>Tailor for a job</Button>
+            <Button onClick={() => router.push('/tailor')}>Tailor a CV</Button>
+            <Button onClick={() => router.push('/design')}>Compare with the original</Button>
           </div>
 
           <div className="mt-6 overflow-hidden rounded-lg bg-foreground/5 p-5">

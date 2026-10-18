@@ -11,7 +11,7 @@ const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin']
 export const metadata: Metadata = {
   title: 'I Hate My CV',
   description:
-    'Upload your CV once, build a Career Library, and generate a tailored CV for every job without redesigning it from scratch.',
+    'Upload your CV once, keep everything about you in one place, and get a tailored CV for every job in your own design.',
 };
 
 export default async function RootLayout({ children }: LayoutProps<'/'>) {

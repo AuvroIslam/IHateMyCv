@@ -36,7 +36,7 @@ export function AppProvider({
       setState(await api.getLibrary());
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load your Career Library.');
+      setError(err instanceof Error ? err.message : 'Could not load your information.');
     } finally {
       setLoading(false);
     }

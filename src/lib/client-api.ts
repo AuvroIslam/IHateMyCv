@@ -49,6 +49,10 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  /** One CV's text read into Profile form, to compare with My Info; nothing is saved. */
+  readCvIntoProfile: (body: { textDump: string; fileName: string }) =>
+    call<{ profile: Profile }>('/api/profile/import', { method: 'POST', body: JSON.stringify(body) }),
+
   saveProfile: (profile: Profile) =>
     call<{ profile: Profile }>('/api/profile', { method: 'PUT', body: JSON.stringify({ profile }) }),
 

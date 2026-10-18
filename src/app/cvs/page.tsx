@@ -40,17 +40,17 @@ export default function CvsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">My CVs</h1>
           <p className="mt-1 text-sm text-subtle">
-            Every version shares one design. Only the content differs.
+            Every CV you have made. Open one to edit it by chat or by hand, and to export a PDF.
           </p>
         </div>
         <div className="flex gap-2">
           {library && (
             <Button onClick={createBlank} disabled={busy}>
-              {busy && <Spinner />} Start from the full CV
+              {busy && <Spinner />} Copy of your original
             </Button>
           )}
           <Link href="/tailor">
-            <Button variant="primary">Tailor for a job</Button>
+            <Button variant="primary">Tailor a CV</Button>
           </Link>
         </div>
       </div>
@@ -72,7 +72,7 @@ export default function CvsPage() {
             }
             action={
               <Link href={library ? '/tailor' : '/upload'}>
-                <Button variant="primary">{library ? 'Tailor for a job' : 'Upload your CV'}</Button>
+                <Button variant="primary">{library ? 'Tailor a CV' : 'Upload your CV'}</Button>
               </Link>
             }
           />

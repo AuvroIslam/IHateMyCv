@@ -89,7 +89,7 @@ export default function LibraryPage() {
     return (
       <div className="mx-auto max-w-2xl px-5 py-20">
         <EmptyState
-          title="No Career Library yet"
+          title="No CV uploaded yet"
           body="Upload your CV and we will turn it into a set of reusable components you can edit and extend."
           action={
             <Link href="/upload">
@@ -173,10 +173,14 @@ export default function LibraryPage() {
     <div className="mx-auto max-w-[1760px] px-5 py-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Career Library</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Original CV content</h1>
           <p className="mt-1 max-w-2xl text-sm text-subtle">
-            Everything you could say about yourself. Tailored CVs are assembled from these parts —
-            add the work that never fits on one page.
+            Your original CV&apos;s content, section by section, exactly as its design prints it. For everything else
+            about you, use{' '}
+            <Link href="/profile" className="underline">
+              My Info
+            </Link>
+            : where the two differ, My Info wins when tailoring.
           </p>
         </div>
         <div className="flex items-center gap-2">

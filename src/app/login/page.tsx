@@ -84,7 +84,7 @@ export default function LoginPage() {
     <div className="mx-auto max-w-sm px-5 py-16">
       <h1 className="text-2xl font-semibold tracking-tight">{mode === 'signin' ? 'Sign in' : 'Create your account'}</h1>
       <p className="mt-2 text-sm text-subtle">
-        Your Career Library and CVs are private to your account and follow you to any device.
+        Your information and CVs are private to your account and follow you to any device.
       </p>
 
       <Panel className="mt-6 space-y-4 p-5">

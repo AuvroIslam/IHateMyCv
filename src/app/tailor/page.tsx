@@ -27,7 +27,7 @@ export default function TailorPage() {
       <div className="mx-auto max-w-2xl px-5 py-20">
         <EmptyState
           title="Upload a CV first"
-          body="Tailoring works by choosing from your Career Library. There is nothing to choose from yet."
+          body="Tailoring needs your CV first: its design is what every tailored CV looks like."
           action={
             <Link href="/upload">
               <Button variant="primary">Upload your CV</Button>
@@ -55,10 +55,10 @@ export default function TailorPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-10">
-      <h1 className="text-2xl font-semibold tracking-tight">Tailor for a job</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">Tailor a CV</h1>
       <p className="mt-2 text-sm text-subtle">
-        Paste the posting. The AI reads the requirements, then selects, reorders and trims your
-        Career Library to match — and renders the result in your original design.
+        Paste a job posting. The AI picks the jobs, projects and skills from My Info that fit it best and lays
+        them out in your original CV&apos;s design. You can then fine-tune it by chat.
       </p>
 
       <Textarea
