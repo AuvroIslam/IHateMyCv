@@ -1,6 +1,6 @@
 import { newId, slugify } from './id';
 import { shapeLike } from './shape';
-import type { ExtractionResult, ImportResult, TailorResult } from './schemas';
+import type { ExtractionResult, TailorResult } from './schemas';
 import type {
   CareerLibrary,
   CvDocumentData,
@@ -135,39 +135,6 @@ export function normalizeExtraction(raw: ExtractionResult): {
   };
 
   return { design: { ...design, sections }, library };
-}
-
-/** Model output from the notes importer, shaped for the library editor's draft. */
-export function normalizeImport(
-  raw: ImportResult,
-  sectionId: string,
-): { entries: LibraryEntry[]; skills: { category: string; skills: string[] }[] } {
-  return {
-    entries: raw.entries
-      .filter((e) => e.title.trim())
-      .map((e) => ({
-        id: newId(),
-        sectionId,
-        title: e.title.trim(),
-        subtitle: nn(e.subtitle),
-        location: nn(e.location),
-        dateText: nn(e.dateText),
-        sortDate: nn(e.sortDate),
-        link: nn(e.link),
-        links: cleanLinks(e.links),
-        bullets: e.bullets
-          .filter((b) => b.text.trim())
-          .map((b) => ({ id: newId(), text: b.text.trim(), tags: cleanTags(b.tags) })),
-        tags: cleanTags(e.tags),
-        archived: false,
-      })),
-    skills: raw.skills
-      .map((g) => ({
-        category: g.category.trim(),
-        skills: dedupe(g.skills.map((s) => s.trim()).filter(Boolean)),
-      }))
-      .filter((g) => g.skills.length > 0),
-  };
 }
 
 function measureBaseline(

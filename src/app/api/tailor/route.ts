@@ -6,7 +6,7 @@ import { TAILOR_SYSTEM, tailorUserPrompt } from '@/lib/prompts';
 import { tailorSchema } from '@/lib/schemas';
 import { withProfile } from '@/lib/profile';
 import { REWRITE_SYSTEM, applyRewrite, rewriteSchema, rewriteUserPrompt, rewriteView } from '@/lib/tailor-rewrite';
-import { designContext } from '@/lib/templates';
+import { designContext, offered } from '@/lib/templates';
 import { mutateStore, readStore } from '@/lib/store';
 import type { SavedCv } from '@/types/cv';
 import { consume } from '@/lib/limits';
@@ -30,8 +30,8 @@ export async function POST(request: Request) {
 
     const store = await readStore();
     // The design to follow: the original's, or a template's (another uploaded CV).
-    const ctx = designContext(store, templateId);
-    if (!ctx) return jsonError(templateId ? 'That CV design no longer exists.' : 'Upload a CV first.', templateId ? 404 : 409);
+    const ctx = offered(store, templateId) ? designContext(store, templateId) : null;
+    if (!ctx) return jsonError('That CV is no longer available to start from. Pick another, or upload one.', 404);
     await consume('tailor');
 
     // My Info's projects, jobs and achievements are candidates too.

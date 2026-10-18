@@ -14,7 +14,12 @@ export function proxy(request: NextRequest) {
   const password = process.env.APP_PASSWORD;
   if (password) {
     const header = request.headers.get('authorization') ?? '';
-    const given = header.startsWith('Basic ') ? atob(header.slice(6)).split(':').slice(1).join(':') : null;
+    let given: string | null = null;
+    try {
+      given = header.startsWith('Basic ') ? atob(header.slice(6)).split(':').slice(1).join(':') : null;
+    } catch {
+      // A malformed header is simply no password.
+    }
     if (given !== password) {
       return new NextResponse('Password required.', {
         status: 401,

@@ -30,6 +30,7 @@ const files = (dir: string, template?: string) => {
 
 /** Deletes a template's files. */
 export async function removeTemplateFiles(template: string) {
+  if (!template) return; // never the whole workspace
   const at = files(await dirOf(), template);
   await fs.rm(at.base, { recursive: true, force: true });
 }

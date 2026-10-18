@@ -56,14 +56,19 @@ export const EMBEDDED_FAMILY: Record<FontRole, string> = {
 };
 
 /** @font-face rules for the faces a design uses. */
+/** Ids are generated server-side; checked again here since they are written into a stylesheet. */
+const SAFE_ID = /^[a-z0-9]{6,32}$/;
+
 export function embeddedFontCss(design: DesignSpec): string {
   if (!design.font.useEmbedded) return '';
+  const template = design.template && SAFE_ID.test(design.template) ? design.template : '';
   return design.font.embedded
+    .filter((f) => SAFE_ID.test(f.id) && (f.style === 'italic' || f.style === 'normal') && f.role in EMBEDDED_FAMILY)
     .map(
       (f) =>
         `@font-face { font-family: "${EMBEDDED_FAMILY[f.role]}"; ` +
         `font-weight: ${f.weight === 'bold' ? '600 900' : '100 599'}; font-style: ${f.style}; ` +
-        `font-display: block; src: url("/api/source/fonts/${f.id}${design.template ? `?template=${design.template}` : ''}"); }`,
+        `font-display: block; src: url("/api/source/fonts/${f.id}${template ? `?template=${template}` : ''}"); }`,
     )
     .join('\n');
 }

@@ -46,4 +46,11 @@ export function designContext(store: Store, templateId?: string | null, own = tr
  * A CV's context. Tailored CVs keep working from the content they were made
  * from (tailoring started from that CV) - so the same as the CV itself.
  */
-export const contextOf = (store: Store, cv: SavedCv) => designContext(store, cv.templateId, true) ?? designContext(store, null);
+export const contextOf = (store: Store, cv: SavedCv) => designContext(store, cv.templateId, true);
+
+/** Whether an upload's design is still offered to start tailored CVs from. */
+export function offered(store: Store, templateId: string | null | undefined): boolean {
+  if (!templateId) return Boolean(store.design && !store.firstHidden);
+  const t = (store.templates ?? []).find((x) => x.id === templateId);
+  return Boolean(t && !t.hidden);
+}

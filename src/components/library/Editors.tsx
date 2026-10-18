@@ -4,17 +4,14 @@ import { useState } from 'react';
 import {
   Badge,
   Button,
-  ErrorNote,
   Field,
   Input,
   Panel,
-  Spinner,
   Textarea,
   cx,
 } from '@/components/ui/kit';
-import { api } from '@/lib/client-api';
 import { newId } from '@/lib/id';
-import type { LibraryEntry, PersonalInfo, SkillGroup, SummaryVariant } from '@/types/cv';
+import type { LibraryEntry, PersonalInfo } from '@/types/cv';
 
 function parseList(value: string): string[] {
   return value
@@ -280,145 +277,6 @@ export function EntryCard({
 
 // ---------------------------------------------------------------------------
 
-export type ImportedMaterial = Awaited<ReturnType<typeof api.importNotes>>;
-
-/**
- * Rough notes in, structured library entries out. The result is handed back
- * to the caller's draft rather than saved, so it is reviewed like any edit.
- */
-export function ImportFromNotes({
-  sectionId,
-  sectionTitle,
-  isSkills,
-  hasApiKey,
-  onImported,
-}: {
-  sectionId: string;
-  sectionTitle: string;
-  isSkills: boolean;
-  hasApiKey: boolean;
-  onImported: (result: ImportedMaterial) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [notes, setNotes] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  if (!open) {
-    return (
-      <Button onClick={() => setOpen(true)}>
-        {isSkills ? 'Add skills from notes' : 'Add from notes'}
-      </Button>
-    );
-  }
-
-  const run = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      onImported(await api.importNotes({ notes, sectionId }));
-      setNotes('');
-      setOpen(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not read those notes.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Panel className="space-y-3 p-4">
-      <div>
-        <p className="text-sm font-medium">Add to {sectionTitle} from notes</p>
-        <p className="mt-0.5 text-xs text-subtle">
-          {isSkills
-            ? 'List tools and technologies however you like. They are sorted into your existing groups.'
-            : 'Describe what you did, messily is fine. It becomes an entry with bullets written in the voice of your existing CV, using only facts you give. Nothing is saved until you review it.'}
-        </p>
-      </div>
-      <Textarea
-        rows={7}
-        value={notes}
-        disabled={busy}
-        placeholder={
-          isSkills
-            ? 'e.g. terraform, some AWS (lambda, s3), grafana dashboards, pytest'
-            : 'e.g. Summer 2024, built an internal tool at Acme for the support team. Python + FastAPI. Cut ticket triage time from ~2 days to same-day. Wrote the on-call runbook.'
-        }
-        onChange={(e) => setNotes(e.target.value)}
-      />
-      {error && <ErrorNote>{error}</ErrorNote>}
-      {!hasApiKey && (
-        <p className="text-xs text-amber-700 dark:text-amber-400">
-          Needs an Anthropic API key. Add ANTHROPIC_API_KEY to .env.local.
-        </p>
-      )}
-      <div className="flex gap-2">
-        <Button variant="primary" onClick={run} disabled={busy || !hasApiKey || !notes.trim()}>
-          {busy && <Spinner />}
-          {busy ? 'Structuring…' : 'Create entries'}
-        </Button>
-        <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
-          Cancel
-        </Button>
-      </div>
-    </Panel>
-  );
-}
-
-// ---------------------------------------------------------------------------
-
-export function SkillGroupCard({
-  group,
-  index,
-  total,
-  onChange,
-  onMove,
-  onDelete,
-}: {
-  group: SkillGroup;
-  index: number;
-  total: number;
-  onChange: (next: SkillGroup) => void;
-  onMove: (delta: number) => void;
-  onDelete: () => void;
-}) {
-  return (
-    <Panel className={cx('p-3', group.archived && 'opacity-55')}>
-      <div className="flex items-center gap-2">
-        <Input
-          value={group.category}
-          placeholder="Category (leave blank for an ungrouped list)"
-          onChange={(e) => onChange({ ...group, category: e.target.value })}
-          className="flex-1"
-        />
-        <Button size="sm" variant="ghost" onClick={() => onMove(-1)} disabled={index === 0}>
-          ↑
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => onMove(1)} disabled={index === total - 1}>
-          ↓
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => onChange({ ...group, archived: !group.archived })}>
-          {group.archived ? 'Restore' : 'Archive'}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={onDelete}>
-          ✕
-        </Button>
-      </div>
-      <Textarea autoGrow
-        rows={2}
-        className="mt-2"
-        value={group.skills.join(', ')}
-        placeholder="Comma separated skills"
-        onChange={(e) => onChange({ ...group, skills: parseList(e.target.value) })}
-      />
-      <p className="mt-1 text-xs text-subtle">{group.skills.length} skills</p>
-    </Panel>
-  );
-}
-
-// ---------------------------------------------------------------------------
-
 export function PersonalEditor({
   personal,
   onChange,
@@ -503,53 +361,3 @@ export function PersonalEditor({
 }
 
 // ---------------------------------------------------------------------------
-
-export function SummaryEditor({
-  variants,
-  onChange,
-}: {
-  variants: SummaryVariant[];
-  onChange: (next: SummaryVariant[]) => void;
-}) {
-  return (
-    <div className="space-y-3">
-      <p className="text-sm text-subtle">
-        Keep several summaries and the tailoring step will pick whichever fits the job best.
-      </p>
-      {variants.map((variant) => (
-        <Panel key={variant.id} className="p-3">
-          <div className="flex gap-2">
-            <Input
-              value={variant.label}
-              placeholder="Label, e.g. Backend roles"
-              onChange={(e) =>
-                onChange(variants.map((v) => (v.id === variant.id ? { ...v, label: e.target.value } : v)))
-              }
-            />
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => onChange(variants.filter((v) => v.id !== variant.id))}
-            >
-              ✕
-            </Button>
-          </div>
-          <Textarea autoGrow
-            rows={3}
-            className="mt-2"
-            value={variant.text}
-            onChange={(e) =>
-              onChange(variants.map((v) => (v.id === variant.id ? { ...v, text: e.target.value } : v)))
-            }
-          />
-        </Panel>
-      ))}
-      <Button
-        size="sm"
-        onClick={() => onChange([...variants, { id: newId(), label: 'New summary', text: '' }])}
-      >
-        Add summary
-      </Button>
-    </div>
-  );
-}

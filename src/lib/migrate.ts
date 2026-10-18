@@ -59,5 +59,6 @@ export function upgradeStore(store: Store): Store {
     ...store,
     design: store.design && upgradeDesign(store.design),
     library: store.library && upgradeLibrary(store.library),
+    templates: store.templates?.map((t) => ({ ...t, design: upgradeDesign(t.design), library: upgradeLibrary(t.library) })),
   };
 }

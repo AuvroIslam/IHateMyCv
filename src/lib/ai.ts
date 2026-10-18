@@ -13,7 +13,6 @@ export type Task =
   | 'cv_design'
   | 'cv_content'
   | 'cv_tags'
-  | 'library_import'
   | 'profile_import'
   | 'tailoring_plan'
   | 'tailor_rewrite'
@@ -28,7 +27,7 @@ export type Task =
  * - profile_import: the same for other CVs; Haiku matched Sonnet and gpt-5.4
  *   on four test CVs for about $0.003 a CV (see callOpenAiFree).
  * - tailoring_plan: judges which experience fits a job - the result users see.
- * - cv_tags, library_import: short, mechanical restructuring.
+ * - cv_tags: short, mechanical restructuring.
  */
 const CLAUDE_MODELS: Record<Task, string> = {
   cv_design: 'claude-sonnet-5-5',
@@ -38,7 +37,6 @@ const CLAUDE_MODELS: Record<Task, string> = {
   tailor_rewrite: 'claude-sonnet-5-5',
   cv_chat: 'claude-sonnet-5-5',
   cv_tags: 'claude-haiku-5-5',
-  library_import: 'claude-haiku-5-5',
 };
 
 /**
@@ -300,14 +298,20 @@ async function openAiOnce<S extends z.ZodType>(apiKey: string, model: string, re
   };
 }
 
-/** The fallback without an Anthropic key: free allowance first, then billed. */
+/** The fallback without an Anthropic key: free allowance first, then billed - and billed calls count against the budget. */
 async function callOpenAi<S extends z.ZodType>(model: string, req: Request<S>): Promise<z.infer<S>> {
   const tier = tierOf(model);
+  const keys = openAiKeys();
+  const free = new Set(await freeKeys(keys, tier));
   let lastError: unknown;
-  for (const apiKey of await orderKeys(openAiKeys(), tier)) {
+  for (const apiKey of await orderKeys(keys, tier)) {
+    const billed = !free.has(apiKey);
     try {
+      if (billed) await assertBudget();
+      const started = Date.now();
       const r = await openAiOnce(apiKey, model, req);
       await recordUsage(apiKey, tier, r.tokens);
+      if (billed) await recordSpend(model, req.name, r.usage, Date.now() - started);
       return r.parsed;
     } catch (err) {
       // Out of quota on this key: note it for the day and try the next one.

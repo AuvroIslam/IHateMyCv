@@ -1,6 +1,6 @@
 import { sectionBaseline, sectionLimits } from './assemble';
 import { fontCatalogueForPrompt } from './fonts';
-import type { CareerLibrary, DesignSpec, SectionDef } from '@/types/cv';
+import type { CareerLibrary, DesignSpec } from '@/types/cv';
 
 const SOURCE_NOTE = `You are given a text layout dump of the PDF: one line per text line, with x/y in points from the top-left of the page (y = baseline), the text height in points and the embedded font name. After each page come its clickable links and the measured space around standalone separator glyphs.`;
 
@@ -96,49 +96,7 @@ export function tagsUserPrompt(entries: { title: string; subtitle?: string; bull
   );
 }
 
-export const IMPORT_SYSTEM = `You turn someone's rough notes about their own work into entries for their Career Library - the pool of material their CV is assembled from.
-
-- Use only facts present in the notes. Never invent metrics, technologies, employers, dates, or outcomes. If the notes give no number, the bullet has no number.
-- Write bullets that read like the person's existing bullets, which you are shown: match their length, tense, punctuation, and whether they lead with a verb. The new material has to sit on the same page as the old without looking pasted in.
-- Notes are written in the first person ("I built", "my club"); CV bullets are not. Drop pronouns unless the existing bullets use them, and never repeat the entry's own title or tech stack as a bullet - the heading already says it. Each bullet should state what was done and what it achieved.
-- One bullet per distinct accomplishment. Prefer 2-5 bullets per entry; do not pad thin notes out to fill a quota.
-- Write generous, specific tags. They are never printed; they exist so a later job-matching pass can find this material.
-- If the notes describe several distinct jobs or projects, return one entry each.
-- For a skills section, return skills only, sorted into the existing categories where they fit. Leave out skills the library already lists.`;
-
-export function importUserPrompt(
-  library: CareerLibrary,
-  section: SectionDef,
-  notes: string,
-): string {
-  const styleSamples = library.entries
-    .flatMap((e) => e.bullets.map((b) => b.text))
-    .filter(Boolean)
-    .slice(0, 12);
-  const dateSamples = Array.from(
-    new Set(library.entries.map((e) => e.dateText).filter(Boolean)),
-  ).slice(0, 5);
-
-  const context =
-    section.type === 'skills'
-      ? `Existing skill groups in this section:\n${library.skillGroups
-          .filter((g) => g.sectionId === section.id)
-          .map((g) => `- ${g.category || '(ungrouped)'}: ${g.skills.join(', ')}`)
-          .join('\n')}`
-      : `Existing bullets, for voice and length:\n${styleSamples.map((t) => `- ${t}`).join('\n')}\n\nDate format in use: ${dateSamples.join('; ') || 'none yet'}`;
-
-  return `Target section: "${section.title}" (type: ${section.type})
-
-${context}
-
-## Notes
-
-\`\`\`
-${notes}
-\`\`\``;
-}
-
-export const TAILOR_SYSTEM =`You are a CV tailoring engine. You select which components from a Career Library belong on a CV for one specific job.
+export const TAILOR_SYSTEM =`You are a CV tailoring engine. You select which components from the candidate's material (their CV and My Info) belong on a CV for one specific job.
 
 ## Hard constraints
 
@@ -216,7 +174,7 @@ export function tailorUserPrompt(
 
 ${counts}
 ${about}
-## Career Library
+## The candidate's material
 
 \`\`\`json
 ${libraryJson}

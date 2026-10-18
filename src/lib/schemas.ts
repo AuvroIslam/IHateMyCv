@@ -310,41 +310,6 @@ export const tagsSchema = z.object({
 });
 export type TagsResult = z.infer<typeof tagsSchema>;
 
-export const importSchema = z.object({
-  entries: z
-    .array(
-      z.object({
-        title: z.string().describe('Job title, project name, degree, or award name'),
-        subtitle: z.string().nullable().describe('Company, institution, tech stack, or issuer'),
-        location: z.string().nullable(),
-        dateText: z
-          .string()
-          .nullable()
-          .describe('Date range in the same format the existing entries use; null if unknown'),
-        sortDate: z.string().nullable().describe('End date as YYYY-MM; "9999-12" if ongoing'),
-        link: z.string().nullable(),
-        links: z
-          .array(z.object({ label: z.string(), url: z.string() }))
-          .describe('Links given in the notes (repo, demo, store page) with short labels like "Github"; empty if none'),
-        bullets: z.array(bulletSchema),
-        tags: z.array(z.string()).describe('5-12 lowercase keywords describing this entry'),
-      }),
-    )
-    .describe('Entries described in the notes. Empty when the target is a skills section.'),
-  skills: z
-    .array(
-      z.object({
-        category: z
-          .string()
-          .describe('An existing category name if one fits, otherwise a new short label'),
-        skills: z.array(z.string()),
-      }),
-    )
-    .describe('Skills to add. Empty unless the target is a skills section.'),
-});
-
-export type ImportResult = z.infer<typeof importSchema>;
-
 export const tailorSchema = z.object({
   roleTitle: z.string().nullable(),
   company: z.string().nullable(),

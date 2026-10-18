@@ -12,8 +12,11 @@ export const maxDuration = 300;
 
 /** Rounds of edits per message: edits, results back, a fix or the reply. */
 const MAX_ROUNDS = 4;
-/** Earlier messages sent along for context. */
+/** Earlier messages sent along for context, each cut to a sensible length. */
 const HISTORY = 12;
+const MAX_TURN_CHARS = 4000;
+/** A CV's content as JSON; real CVs are a few tens of thousands of characters. */
+const MAX_CV_CHARS = 200_000;
 
 /**
  * One chat message. Streams server-sent events while the model works:
@@ -35,6 +38,8 @@ export async function POST(request: Request, context: RouteContext<'/api/cvs/[id
     const message = body.message?.trim();
     if (!message) return jsonError('Type a message first.');
     if (message.length > 4000) return jsonError('That message is too long. Keep it under 4,000 characters.');
+    // Everything sent goes to the model: bounded, so one message cannot cost a fortune.
+    if (body.data && JSON.stringify(body.data).length > MAX_CV_CHARS) return jsonError('This CV is too large to chat about.', 413);
     if (provider() !== 'anthropic') return jsonError('Chat editing needs ANTHROPIC_API_KEY in .env.local.', 428);
 
     const store = await readStore();
@@ -53,12 +58,14 @@ export async function POST(request: Request, context: RouteContext<'/api/cvs/[id
     const model = modelFor('cv_chat');
     const client = claudeClient();
 
-    const history: Anthropic.MessageParam[] = (body.history ?? []).slice(-HISTORY).map((t) => ({
-      role: t.role,
-      content:
+    const clip = (s: string) => (s.length > MAX_TURN_CHARS ? `${s.slice(0, MAX_TURN_CHARS)}…` : s);
+    const history: Anthropic.MessageParam[] = (Array.isArray(body.history) ? body.history : []).slice(-HISTORY).map((t) => ({
+      role: t.role === 'assistant' ? 'assistant' : 'user',
+      content: clip(
         t.role === 'assistant' && t.changes?.length
-          ? `${t.text}\n\n(Edits made: ${t.changes.join('; ')})`
-          : t.text || '(no reply)',
+          ? `${t.text}\n\n(Edits made: ${t.changes.slice(0, 20).join('; ')})`
+          : String(t.text || '(no reply)'),
+      ),
     }));
     // The API needs turns to alternate and to open with the user.
     while (history.length && history[0].role !== 'user') history.shift();

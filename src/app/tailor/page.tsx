@@ -141,13 +141,14 @@ export default function TailorPage() {
         <p className="font-medium">What changes, and what does not</p>
         <ul className="mt-3 space-y-2 text-subtle">
           <li>
-            <span className="text-foreground">Changes:</span> which projects, roles and bullets
-            appear, the order within each section, and which skills lead the list.
+            <span className="text-foreground">Changes:</span> which projects, roles and bullets appear, their order,
+            which skills lead, and - with rewording on - the wording of the summary, headline and bullets, in the
+            job&apos;s terms.
           </li>
           <li>
-            <span className="text-foreground">Never changes:</span> fonts, sizes, margins, rules,
-            bullet glyphs, section order, section titles — and the wording of your bullets. Nothing
-            is rewritten or invented; the AI can only pick from what is already in your library.
+            <span className="text-foreground">Never changes:</span> your facts (nothing is invented: no new
+            employers, numbers or tools), and the design - fonts, layout, section order and titles. Colours and
+            fonts can be changed later in Chat.
           </li>
         </ul>
       </Panel>

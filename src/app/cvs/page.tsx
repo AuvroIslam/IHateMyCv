@@ -34,7 +34,7 @@ export default function CvsPage() {
 
   const duplicate = (copyOf: string) =>
     run(`copy:${copyOf}`, async () => {
-      await api.createBlankCv(copyOf);
+      await api.duplicateCv(copyOf);
       await refresh();
     });
 

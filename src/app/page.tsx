@@ -65,7 +65,7 @@ export default function HomePage() {
           title="My Info"
           body={
             counts.length
-              ? `${counts.map((k) => `${k.n} ${k.n === 1 ? k.one : k.label.toLowerCase()}`).join(' · ')}. Add anything that never fit on the page.`
+              ? `${counts.map((k) => `${k.n} ${k.n === 1 ? k.one : k.many}`).join(' · ')}. Add anything that never fit on the page.`
               : 'Not filled in yet. Import your CV in one click, then add everything else about you.'
           }
           href="/profile"
@@ -88,8 +88,8 @@ export default function HomePage() {
               ? 'Open a CV to change it by chatting ("make it one page") or by hand, then export a PDF.'
               : 'Your CVs appear here. Chat with any of them to change words, colours or fonts.'
           }
-          href={cvs.length ? '/cvs' : '/chat'}
-          action={cvs.length ? `My CVs (${cvs.length})` : 'Try the chat'}
+          href={cvs.length ? '/cvs' : '/upload'}
+          action={cvs.length ? `My CVs (${cvs.length})` : 'Upload a CV'}
         />
       </div>
 

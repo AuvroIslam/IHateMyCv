@@ -9,8 +9,9 @@ export async function GET(_request: Request, context: RouteContext<'/api/cvs/[id
     const store = await readStore();
     const cv = store.cvs.find((c) => c.id === id);
     if (!cv) return jsonError('CV not found.', 404);
-    // The CV's own design: the original's, or the template it follows.
+    // The CV's own design: the upload it was made from.
     const ctx = contextOf(store, cv);
+    if (!ctx) return jsonError('The design this CV was made from is missing. Duplicate another CV instead.', 410);
     return Response.json({
       cv,
       design: ctx?.design ?? null,
@@ -53,9 +54,11 @@ export async function DELETE(_request: Request, context: RouteContext<'/api/cvs/
       const cv = store.cvs.find((c) => c.id === id);
       if (!cv) return null;
       store.cvs = store.cvs.filter((c) => c.id !== id);
-      // An uploaded CV deleted: its design is no longer offered to tailor from.
-      if (cv.uploaded && !cv.templateId) store.firstHidden = true;
-      if (cv.uploaded && cv.templateId) {
+      // An uploaded CV deleted: its design is no longer offered to tailor from
+      // (unless another upload of the same design remains).
+      const stillUploaded = store.cvs.some((c) => c.uploaded && (c.templateId ?? null) === (cv.templateId ?? null));
+      if (cv.uploaded && !stillUploaded) {
+        if (!cv.templateId) store.firstHidden = true;
         const t = (store.templates ?? []).find((x) => x.id === cv.templateId);
         if (t) t.hidden = true;
       }

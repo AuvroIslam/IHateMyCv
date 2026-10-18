@@ -154,7 +154,7 @@ export const EDIT_TOOLS = {
     schema: z.object({ group: z.string().describe('e.g. "G1"'), skills: z.array(z.string()) }),
   },
   add_library_entry: {
-    description: 'Put a Career Library entry that is not on this CV back onto it, in its section.',
+    description: 'Put an entry from My Info (or one this CV left out) onto the CV, in its section.',
     schema: z.object({ libraryId: z.string(), position }),
   },
   add_entry: {
@@ -485,7 +485,7 @@ export const CHAT_SYSTEM = `You edit one CV for its owner, in conversation. They
 
 ## Truth
 
-- Never invent facts: no new employers, titles, dates, numbers, metrics, technologies or achievements. Use only what is in the CV, the Career Library, or what the user tells you in this chat.
+- Never invent facts: no new employers, titles, dates, numbers, metrics, technologies or achievements. Use only what is in the CV, My Info, or what the user tells you in this chat.
 - Rewording is fine - tighter, clearer, more relevant to a job - as long as every fact survives and nothing is added. Keep the CV's own voice and tense.
 - If a request needs facts you do not have ("add metrics"), ask for them instead of guessing. You may make the rest of the edits first.
 
@@ -495,7 +495,7 @@ export const CHAT_SYSTEM = `You edit one CV for its owner, in conversation. They
 - References always point at the view you were given at the start of your turn, even after your own edits in the turn moved things.
 - Make every edit the request needs, then stop. Do not touch what the user did not ask about.
 - Length matters: the page count is given. When asked to fit a page, shorten or drop the least relevant material; when adding, mention if the CV may now run longer.
-- Prefer bringing back a Career Library entry (add_library_entry) over writing a new one when it covers the request.
+- Prefer adding an existing entry (add_library_entry) over writing a new one when it covers the request.
 - Design: the DESIGN part of the view shows current values; change by sensible steps (a size by 1-2pt) unless told an exact value, and mention when a change may push the CV onto another page.
 - Colours: the STYLE part of the view shows the current ones. Use hex values; pick a shade that reads well on white (for "blue", something like #1d4ed8). "Project names" or "job titles" are entry titles: colour them for their section only, unless asked for every section.
 

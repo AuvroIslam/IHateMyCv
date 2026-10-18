@@ -21,12 +21,12 @@ export default function Nav() {
 
   return (
     <header className="no-print sticky top-0 z-20 border-b border-line bg-background/85 backdrop-blur">
-      <div className="mx-auto flex max-w-[1760px] items-center gap-6 px-5 py-3">
-        <Link href="/" className="font-semibold tracking-tight">
+      <div className="mx-auto flex max-w-[1760px] items-center gap-3 px-4 py-3 sm:gap-6 sm:px-5">
+        <Link href="/" className="shrink-0 font-semibold tracking-tight whitespace-nowrap">
           I Hate My CV
         </Link>
 
-        <nav className={cx('flex items-center gap-1 text-sm', signedOut && 'hidden')}>
+        <nav className={cx('-mx-1 flex min-w-0 items-center gap-1 overflow-x-auto px-1 text-sm', signedOut && 'hidden')}>
           {LINKS.map((link) => {
             // A single CV, and the chat shortcut that opens one, belong to My CVs.
             const active =
@@ -39,7 +39,7 @@ export default function Nav() {
                 key={link.href}
                 href={link.href}
                 className={cx(
-                  'rounded-md px-2.5 py-1.5 transition-colors',
+                  'shrink-0 rounded-md px-2.5 py-1.5 whitespace-nowrap transition-colors',
                   active ? 'bg-foreground/8 text-foreground' : 'text-subtle hover:text-foreground',
                 )}
               >
@@ -49,7 +49,7 @@ export default function Nav() {
           })}
         </nav>
 
-        <div className="ml-auto flex items-center gap-3 text-xs text-subtle">
+        <div className="ml-auto flex shrink-0 items-center gap-3 text-xs text-subtle">
           {!loading && !hasApiKey && (
             <span className="rounded bg-amber-500/15 px-2 py-1 text-amber-700 dark:text-amber-400">
               No API key

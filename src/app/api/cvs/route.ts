@@ -1,5 +1,4 @@
 import { handleRouteError, jsonError } from '@/lib/api';
-import { buildBaseDocument } from '@/lib/assemble';
 import { newId } from '@/lib/id';
 import { mutateStore, readStore } from '@/lib/store';
 import type { SavedCv } from '@/types/cv';
@@ -13,37 +12,26 @@ export async function GET() {
   }
 }
 
-/**
- * Creates a CV: an untailored copy of the original, or with `copyOf`, a
- * duplicate of one of the owner's CVs (its content, look and job, not its chat).
- */
+/** Duplicates one of the owner's CVs: its content, look and job, not its chat. */
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => ({}))) as { copyOf?: string };
     const store = await readStore();
-    if (!store.library || !store.design) return jsonError('Upload a CV first.', 409);
+    const source = body.copyOf ? store.cvs.find((c) => c.id === body.copyOf) : null;
+    if (!source) return jsonError('Choose a CV to duplicate.', body.copyOf ? 404 : 400);
 
     const now = new Date().toISOString();
-    const source = body.copyOf ? store.cvs.find((c) => c.id === body.copyOf) : null;
-    if (body.copyOf && !source) return jsonError('CV not found.', 404);
-    const cv: SavedCv = source
-      ? {
-          ...structuredClone(source),
-          id: newId(),
-          name: `Copy of ${source.name}`,
-          createdAt: now,
-          updatedAt: now,
-          chat: [],
-        }
-      : {
-          id: newId(),
-          name: 'Copy of your original',
-          jobDescription: '',
-          createdAt: now,
-          updatedAt: now,
-          data: buildBaseDocument(store.library, store.design),
-          report: null,
-        };
+    const cv: SavedCv = {
+      ...structuredClone(source),
+      id: newId(),
+      name: `Copy of ${source.name}`,
+      createdAt: now,
+      updatedAt: now,
+      chat: [],
+      // A copy is not the upload itself: it neither stands for its design nor asks about My Info.
+      uploaded: undefined,
+      askedImport: undefined,
+    };
 
     await mutateStore((s) => {
       s.cvs.unshift(cv);

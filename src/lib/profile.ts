@@ -13,17 +13,17 @@ import type {
 
 /**
  * The Profile ("My Info"): everything about the owner, apart from any CV.
- * It is never printed as it is. Tailoring and the chat see it merged over the
- * Career Library the upload produced (withProfile): where both hold the same
- * project or job, the Profile's version wins, and once a kind of item is in
- * the Profile, the Profile decides which of them exist.
+ * It is never printed as it is. Tailoring and the chat see it merged over a
+ * CV's own content (withProfile): where both hold the same project or job,
+ * My Info's version wins; what only My Info has joins in; nothing the CV
+ * itself says is removed.
  */
 
-export const PROFILE_KINDS: { kind: ProfileKind; label: string; one: string }[] = [
-  { kind: 'experience', label: 'Experience', one: 'job' },
-  { kind: 'projects', label: 'Projects', one: 'project' },
-  { kind: 'achievements', label: 'Achievements', one: 'achievement' },
-  { kind: 'education', label: 'Education', one: 'degree or course' },
+export const PROFILE_KINDS: { kind: ProfileKind; label: string; one: string; many: string }[] = [
+  { kind: 'experience', label: 'Experience', one: 'job', many: 'jobs' },
+  { kind: 'projects', label: 'Projects', one: 'project', many: 'projects' },
+  { kind: 'achievements', label: 'Achievements', one: 'achievement', many: 'achievements' },
+  { kind: 'education', label: 'Education', one: 'degree or course', many: 'degrees or courses' },
 ];
 
 export const emptyProfile = (): Profile => ({
@@ -95,7 +95,7 @@ function mergeBullets(own: LibraryBullet[], profile: LibraryBullet[]): LibraryBu
 }
 
 /**
- * The Career Library as tailoring and the chat should see it, with the
+ * A CV's content as tailoring and the chat should see it, with the
  * Profile over it. Facts that have no place as entries (the free-form
  * "about", items with no section of their kind on this CV, extra links) come
  * back as text: true and usable, but not entries.
@@ -149,28 +149,24 @@ export function withProfile(
       });
     }
   }
-  // A kind the Profile holds is the Profile's to decide: what was removed there stays out.
-  const held = new Set(profile.entries.map((e) => e.sectionId));
-  const typeOf = new Map(design.sections.map((s) => [s.id, s.type]));
-  for (const e of entries) {
-    const kind = kindOfType(typeOf.get(e.sectionId) ?? '');
-    if (kind && held.has(kind) && !matched.has(e.id)) e.archived = true;
-  }
+  // The CV's own items all stay: My Info adds to them and updates the ones it
+  // also holds, but never removes what the CV itself says.
 
+  // Skills: a group My Info also has gains My Info's skills; groups only My
+  // Info has join the CV's skills section.
   let skillGroups: SkillGroup[] = library.skillGroups;
   const skillSection = design.sections.find((s) => s.type === 'skills');
   if (profile.skills?.length && skillSection) {
-    const used = new Set<string>();
-    skillGroups = profile.skills
-      .filter((g) => g.skills.length)
-      .map((g) => {
-        const own = library.skillGroups.find((x) => !used.has(x.id) && norm(x.category) === norm(g.category));
-        if (own) used.add(own.id);
-        return own
-          ? { ...own, category: g.category, skills: [...g.skills], archived: false }
-          : { id: `p-${g.id}`, sectionId: skillSection.id, category: g.category, skills: [...g.skills], archived: false };
-      });
-    skillGroups = [...skillGroups, ...library.skillGroups.filter((g) => !used.has(g.id)).map((g) => ({ ...g, archived: true }))];
+    skillGroups = library.skillGroups.map((g) => ({ ...g, skills: [...g.skills] }));
+    for (const p of profile.skills.filter((g) => g.skills.length)) {
+      const own = skillGroups.find((x) => norm(x.category) === norm(p.category));
+      if (own) {
+        const have = new Set(own.skills.map(norm));
+        own.skills.push(...p.skills.filter((s) => !have.has(norm(s))));
+      } else {
+        skillGroups.push({ id: `p-${p.id}`, sectionId: skillSection.id, category: p.category, skills: [...p.skills], archived: false });
+      }
+    }
   }
 
   let summaryVariants: SummaryVariant[] = library.summaryVariants;

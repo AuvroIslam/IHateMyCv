@@ -219,7 +219,7 @@ export default function CvPage() {
       {importing && design && (
         <ImportFlow
           current={normalizeProfile(profile)}
-          start={[{ profile: profileFromDocument(template?.original ?? cv.data, design), from: cv.name }]}
+          start={[{ profile: profileFromDocument((template ? template.original : originalDocument) ?? cv.data, design), from: cv.name }]}
           onApply={async (next) => {
             await api.saveProfile(next);
             await refresh();

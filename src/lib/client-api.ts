@@ -8,7 +8,6 @@ import type {
   ChatTurn,
   CvDocumentData,
   DesignSpec,
-  LibraryEntry,
   SavedCv,
   SourceLayout,
 } from '@/types/cv';
@@ -57,18 +56,12 @@ export const api = {
   saveProfile: (profile: Profile) =>
     call<{ profile: Profile }>('/api/profile', { method: 'PUT', body: JSON.stringify({ profile }) }),
 
-  importNotes: (body: { notes: string; sectionId: string }) =>
-    call<{ entries: LibraryEntry[]; skills: { category: string; skills: string[] }[] }>(
-      '/api/library/import',
-      { method: 'POST', body: JSON.stringify(body) },
-    ),
-
   getSourceLayout: (template?: string) =>
     call<{ layout: SourceLayout }>(`/api/source/layout${template ? `?template=${encodeURIComponent(template)}` : ''}`),
 
   resetEverything: () => call<{ ok: true }>('/api/library', { method: 'DELETE' }),
 
-  /** Reads an upload. With `asTemplate`, it becomes a new CV in its own design and `cvId` names it. */
+  /** Reads an upload: it becomes a new CV in its own design, and `cvId` names it. */
   extract: (body: unknown) =>
     call<{ design: DesignSpec; library: CareerLibrary; stats: Record<string, number>; cvId?: string }>(
       '/api/extract',
@@ -99,9 +92,8 @@ export const api = {
 
   deleteCv: (id: string) => call<{ ok: true }>(`/api/cvs/${id}`, { method: 'DELETE' }),
 
-  /** A copy of the original CV, or with `copyOf`, a duplicate of one of the owner's CVs. */
-  createBlankCv: (copyOf?: string) =>
-    call<{ cv: SavedCv }>('/api/cvs', { method: 'POST', body: JSON.stringify(copyOf ? { copyOf } : {}) }),
+  /** A duplicate of one of the owner's CVs. */
+  duplicateCv: (copyOf: string) => call<{ cv: SavedCv }>('/api/cvs', { method: 'POST', body: JSON.stringify({ copyOf }) }),
 
   /** Streams a chat message's events (see /api/cvs/[id]/chat) to `onEvent`. */
   chatCv: async (

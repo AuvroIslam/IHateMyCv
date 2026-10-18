@@ -36,11 +36,6 @@ interface ExtractBody {
   pdf?: string;
   /** Each page with its text erased, PNG base64, for the exact replica. */
   backgrounds?: { mediaType: string; data: string }[];
-  /**
-   * Keep this CV as a new CV with its own design (a template) instead of
-   * replacing the original: the original, its CVs and My Info stay as they are.
-   */
-  asTemplate?: boolean;
 }
 
 /** A text-free page render is a few hundred KB; this only stops something absurd. */
@@ -73,18 +68,20 @@ export async function POST(request: Request) {
     const body = (await request.json()) as ExtractBody;
     const textDump = body.textDump?.trim();
     if (!textDump) return jsonError('No text could be read from that file.');
+    // It goes to three model calls: a real CV is far under this.
+    if (textDump.length > 150_000) return jsonError('That file has far more text than a CV. Upload a CV of a few pages.', 413);
     // Every upload becomes a CV of its own. The first is stored as the base
     // (store.design / store.library); every later one as a template beside it.
     // Nothing is ever replaced.
     const current = await readStore();
     const templateId = current.library && current.design ? newId() : undefined;
-    if (templateId && (current.templates ?? []).length >= MAX_TEMPLATES) {
-      return jsonError(`You can keep up to ${MAX_TEMPLATES} uploaded CVs besides your original. Delete one in My CVs first.`, 409);
+    if (templateId && (current.templates ?? []).filter((t) => !t.hidden).length >= MAX_TEMPLATES) {
+      return jsonError(`You can keep up to ${MAX_TEMPLATES + 1} uploaded CVs. Delete one in My CVs first.`, 409);
     }
     await consume('upload');
 
     const pageCount = Math.max(1, Math.round(body.pageCount ?? 1));
-    const images = (body.images ?? []).slice(0, 3);
+    const images = (body.images ?? []).filter((i) => typeof i?.data === 'string' && i.data.length < 6_000_000).slice(0, 3);
     const layout = body.layout ?? null;
 
     // The design is read in two halves (see designPageSchema), side by side.
@@ -194,6 +191,8 @@ export async function POST(request: Request) {
         store.templates = [...(store.templates ?? []), { id: templateId, design, library, original, source }];
         store.cvs.unshift(cv);
       });
+      const ws = await workspaceId();
+      after(() => tagLibrary(uploadedAt, ws, templateId));
       return Response.json({ design, library, stats, cvId: cv.id });
     }
 
@@ -224,10 +223,13 @@ export async function POST(request: Request) {
  * Writes matching keywords onto the library just built. Never blocks the
  * upload: until it lands, tailoring simply works from the text alone.
  */
-async function tagLibrary(uploadedAt: string, ws: string) {
+async function tagLibrary(uploadedAt: string, ws: string, templateId?: string) {
   try {
     const store = await readStore(ws);
-    const entries = store.library?.entries ?? [];
+    // The upload's own content: the first one's, or its template's.
+    const libraryOf = (s: typeof store) =>
+      templateId ? s.templates?.find((t) => t.id === templateId)?.library : s.library;
+    const entries = libraryOf(store)?.entries ?? [];
     if (!entries.length) return;
 
     const result = await generateStructured({
@@ -243,10 +245,12 @@ async function tagLibrary(uploadedAt: string, ws: string) {
       Array.from(new Set(tags.map((t) => t.trim().toLowerCase()).filter(Boolean))).slice(0, 14);
 
     await mutateStore((s) => {
-      // A newer upload replaced this library while we worked: drop the result.
-      if (!s.library || s.source?.uploadedAt !== uploadedAt) return;
+      // The upload was deleted while we worked: drop the result.
+      const library = libraryOf(s);
+      const source = templateId ? s.templates?.find((t) => t.id === templateId)?.source : s.source;
+      if (!library || source?.uploadedAt !== uploadedAt) return;
       for (const t of result.entries) {
-        const entry = s.library.entries[t.index];
+        const entry = library.entries[t.index];
         if (!entry || entry.tags.length) continue; // never overwrite the user's own tags
         entry.tags = clean(t.tags);
         entry.bullets.forEach((b, k) => {
