@@ -88,7 +88,9 @@ export const api = {
 
   deleteCv: (id: string) => call<{ ok: true }>(`/api/cvs/${id}`, { method: 'DELETE' }),
 
-  createBlankCv: () => call<{ cv: SavedCv }>('/api/cvs', { method: 'POST' }),
+  /** A copy of the original CV, or with `copyOf`, a duplicate of one of the owner's CVs. */
+  createBlankCv: (copyOf?: string) =>
+    call<{ cv: SavedCv }>('/api/cvs', { method: 'POST', body: JSON.stringify(copyOf ? { copyOf } : {}) }),
 
   /** Streams a chat message's events (see /api/cvs/[id]/chat) to `onEvent`. */
   chatCv: async (

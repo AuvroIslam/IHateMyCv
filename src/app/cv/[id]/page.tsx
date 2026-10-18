@@ -10,12 +10,13 @@ import CvPreview from '@/components/cv/CvPreview';
 import { useReplicaSource } from '@/components/cv/Replica';
 import { Badge, Button, ErrorNote, Input, Panel, Spinner, cx } from '@/components/ui/kit';
 import { api } from '@/lib/client-api';
+import { withProfile } from '@/lib/profile';
 import type { CareerLibrary, ChatTurn, CvDocumentData, DesignSpec, SavedCv } from '@/types/cv';
 
 export default function CvPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { refresh, source, originalDocument } = useApp();
+  const { refresh, source, originalDocument, profile } = useApp();
   const replica = useReplicaSource();
 
   const [cv, setCv] = useState<SavedCv | null>(null);
@@ -29,6 +30,11 @@ export default function CvPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // What can be added to this CV: the library with My Info over it, as tailoring sees it.
+  const pickable = useMemo(
+    () => (library && design ? withProfile(library, design, profile).library : library),
+    [library, design, profile],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -202,9 +208,9 @@ export default function CvPage() {
             ) : tab === 'content' ? (
               <>
                 <p className="mb-3 text-xs text-subtle">
-                  Pick, drop, reorder and correct. Styling is fixed by your captured design.
+                  Change any text, link or order here. For colours and fonts, ask in Chat.
                 </p>
-                <CvEditor design={design} library={library} data={data} onChange={setData} />
+                <CvEditor design={design} library={pickable} data={data} onChange={setData} />
               </>
             ) : report ? (
               <MatchReportView report={report} />

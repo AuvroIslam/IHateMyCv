@@ -154,7 +154,7 @@ export default function MyInfoPage() {
               <section>
                 <h2 className="text-sm font-semibold">Summary</h2>
                 <p className="mt-1 mb-3 text-xs text-subtle">A few sentences about you. Offered first when a CV has a summary.</p>
-                <Textarea
+                <Textarea autoGrow
                   rows={4}
                   value={draft.summary ?? ''}
                   onChange={(e) => setDraft({ ...draft, summary: e.target.value })}
@@ -167,7 +167,7 @@ export default function MyInfoPage() {
                   Languages, certifications, interests, availability, goals: anything true a CV might use. It is not
                   printed as it is; the AI uses it when tailoring and in chat (&ldquo;add my languages&rdquo;).
                 </p>
-                <Textarea
+                <Textarea autoGrow
                   rows={7}
                   value={draft.about}
                   onChange={(e) => setDraft({ ...draft, about: e.target.value })}
@@ -213,7 +213,7 @@ export default function MyInfoPage() {
                       Remove
                     </Button>
                   </div>
-                  <Textarea
+                  <Textarea autoGrow
                     rows={2}
                     value={g.skills.join(', ')}
                     placeholder="Comma-separated, e.g. Python, TypeScript, Kotlin"

@@ -195,7 +195,7 @@ export function EntryCard({
             <div className="space-y-2">
               {entry.bullets.map((bullet, i) => (
                 <div key={bullet.id} className="flex gap-2">
-                  <Textarea
+                  <Textarea autoGrow
                     rows={2}
                     value={bullet.text}
                     onChange={(e) => updateBullet(bullet.id, e.target.value)}
@@ -405,7 +405,7 @@ export function SkillGroupCard({
           ✕
         </Button>
       </div>
-      <Textarea
+      <Textarea autoGrow
         rows={2}
         className="mt-2"
         value={group.skills.join(', ')}
@@ -534,7 +534,7 @@ export function SummaryEditor({
               ✕
             </Button>
           </div>
-          <Textarea
+          <Textarea autoGrow
             rows={3}
             className="mt-2"
             value={variant.text}

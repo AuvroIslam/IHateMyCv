@@ -1,6 +1,6 @@
 'use client';
 
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from 'react';
+import { type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes, useLayoutEffect, useRef } from 'react';
 
 export function cx(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(' ');
@@ -82,8 +82,36 @@ export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElem
   return <input {...props} className={cx(INPUT_CLASS, className)} />;
 }
 
-export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea {...props} className={cx(INPUT_CLASS, 'resize-y leading-relaxed', className)} />;
+/**
+ * `autoGrow` makes the box exactly as tall as its text, so everything in it
+ * is visible at once - no inner scrollbar - and it grows as you type.
+ */
+export function Textarea({
+  className,
+  autoGrow = false,
+  ...props
+}: TextareaHTMLAttributes<HTMLTextAreaElement> & { autoGrow?: boolean }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!autoGrow || !el) return;
+    const fit = () => {
+      el.style.height = 'auto';
+      el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+    };
+    fit();
+    // The width can change without the text changing (panel resized, fonts loaded).
+    const observer = new ResizeObserver(fit);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [autoGrow, props.value]);
+  return (
+    <textarea
+      ref={ref}
+      {...props}
+      className={cx(INPUT_CLASS, 'leading-relaxed', autoGrow ? 'resize-none overflow-hidden' : 'resize-y', className)}
+    />
+  );
 }
 
 export function Badge({

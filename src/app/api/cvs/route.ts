@@ -13,22 +13,37 @@ export async function GET() {
   }
 }
 
-/** Creates an untailored copy of the original CV, as a manual starting point. */
-export async function POST() {
+/**
+ * Creates a CV: an untailored copy of the original, or with `copyOf`, a
+ * duplicate of one of the owner's CVs (its content, look and job, not its chat).
+ */
+export async function POST(request: Request) {
   try {
+    const body = (await request.json().catch(() => ({}))) as { copyOf?: string };
     const store = await readStore();
     if (!store.library || !store.design) return jsonError('Upload a CV first.', 409);
 
     const now = new Date().toISOString();
-    const cv: SavedCv = {
-      id: newId(),
-      name: 'Untitled CV',
-      jobDescription: '',
-      createdAt: now,
-      updatedAt: now,
-      data: buildBaseDocument(store.library, store.design),
-      report: null,
-    };
+    const source = body.copyOf ? store.cvs.find((c) => c.id === body.copyOf) : null;
+    if (body.copyOf && !source) return jsonError('CV not found.', 404);
+    const cv: SavedCv = source
+      ? {
+          ...structuredClone(source),
+          id: newId(),
+          name: `Copy of ${source.name}`,
+          createdAt: now,
+          updatedAt: now,
+          chat: [],
+        }
+      : {
+          id: newId(),
+          name: 'Copy of your original',
+          jobDescription: '',
+          createdAt: now,
+          updatedAt: now,
+          data: buildBaseDocument(store.library, store.design),
+          report: null,
+        };
 
     await mutateStore((s) => {
       s.cvs.unshift(cv);

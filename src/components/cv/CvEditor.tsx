@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Panel, Textarea, cx } from '@/components/ui/kit';
+import { Button, Input, Panel, Textarea, cx } from '@/components/ui/kit';
 import { bulletPrintOf } from '@/lib/assemble';
 import type {
   CareerLibrary,
@@ -12,11 +12,8 @@ import type {
 } from '@/types/cv';
 
 /**
- * Manual control over a generated CV.
- *
- * Deliberately limited to the same moves the AI has: pick, drop, reorder, and
- * correct wording. There is no styling control here because styling is not a
- * per-CV decision - it belongs to the captured design.
+ * Manual control over a generated CV: pick, drop, reorder, and correct any
+ * text or link. Colours and fonts are changed through the chat.
  */
 export default function CvEditor({
   design,
@@ -77,7 +74,8 @@ export default function CvEditor({
               <div className="space-y-3 border-t border-line p-3">
                 {def.type === 'summary' && (
                   <Textarea
-                    rows={4}
+                    autoGrow
+                    rows={3}
                     value={section.summary ?? ''}
                     placeholder="No summary on this CV."
                     onChange={(e) =>
@@ -123,7 +121,8 @@ export default function CvEditor({
                         </div>
                       </div>
                       <Textarea
-                        rows={2}
+                        autoGrow
+                        rows={1}
                         value={group.skills.join(', ')}
                         onChange={(e) =>
                           patchSection(def.id, (s) => ({
@@ -226,7 +225,9 @@ function EntryEditor({
             {[entry.subtitle, entry.dateText].filter(Boolean).join(' · ')}
           </span>
         </button>
-        <span className="shrink-0 text-xs text-subtle tabular-nums">{entry.bullets.length}</span>
+        <span className="shrink-0 text-xs text-subtle tabular-nums" title="Bullets">
+          {entry.bullets.length}
+        </span>
         <Button size="sm" variant="ghost" disabled={index === 0} onClick={() => onMove(-1)}>
           ↑
         </Button>
@@ -239,58 +240,118 @@ function EntryEditor({
       </div>
 
       {open && (
-        <div className="space-y-2 border-t border-line p-2">
-          {entry.bullets.map((text, bi) => (
-            <div key={bi} className="flex gap-1">
-              <Textarea
-                rows={2}
-                value={text}
-                className="flex-1 text-[13px]"
-                onChange={(e) =>
-                  onChange({
-                    ...entry,
-                    bullets: entry.bullets.map((b, i) => (i === bi ? e.target.value : b)),
-                  })
-                }
-              />
-              <div className="flex flex-col gap-0.5">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={bi === 0}
-                  onClick={() => onChange({ ...entry, bullets: swap(entry.bullets, bi, bi - 1) })}
-                >
-                  ↑
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={bi === entry.bullets.length - 1}
-                  onClick={() => onChange({ ...entry, bullets: swap(entry.bullets, bi, bi + 1) })}
-                >
-                  ↓
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() =>
-                    onChange({ ...entry, bullets: entry.bullets.filter((_, i) => i !== bi) })
-                  }
-                >
-                  ✕
-                </Button>
-              </div>
+        <div className="space-y-3 border-t border-line p-2">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Field label="Title" value={entry.title} onChange={(title) => onChange({ ...entry, title })} />
+            <Field label="Organisation" value={entry.subtitle} onChange={(subtitle) => onChange({ ...entry, subtitle })} />
+            <Field label="Dates" value={entry.dateText} onChange={(dateText) => onChange({ ...entry, dateText })} />
+            <Field label="Location" value={entry.location} onChange={(location) => onChange({ ...entry, location })} />
+          </div>
+
+          <div>
+            <p className="mb-1 text-xs font-medium text-subtle">Bullets</p>
+            <div className="space-y-2">
+              {entry.bullets.map((text, bi) => (
+                <div key={bi} className="flex gap-1">
+                  <Textarea
+                    autoGrow
+                    rows={1}
+                    value={text}
+                    className="flex-1 text-[13px]"
+                    onChange={(e) =>
+                      onChange({
+                        ...entry,
+                        bullets: entry.bullets.map((b, i) => (i === bi ? e.target.value : b)),
+                      })
+                    }
+                  />
+                  <div className="flex flex-col gap-0.5">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={bi === 0}
+                      onClick={() => onChange({ ...entry, bullets: swap(entry.bullets, bi, bi - 1) })}
+                    >
+                      ↑
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={bi === entry.bullets.length - 1}
+                      onClick={() => onChange({ ...entry, bullets: swap(entry.bullets, bi, bi + 1) })}
+                    >
+                      ↓
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => onChange({ ...entry, bullets: entry.bullets.filter((_, i) => i !== bi) })}
+                    >
+                      ✕
+                    </Button>
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
-          <Button
-            size="sm"
-            onClick={() => onChange({ ...entry, bullets: [...entry.bullets, ''] })}
-          >
-            Add bullet
-          </Button>
+            <Button size="sm" className="mt-2" onClick={() => onChange({ ...entry, bullets: [...entry.bullets, ''] })}>
+              Add bullet
+            </Button>
+          </div>
+
+          <div>
+            <p className="mb-1 text-xs font-medium text-subtle">Links</p>
+            <div className="space-y-2">
+              {(entry.links ?? []).map((link, li) => (
+                <div key={li} className="grid grid-cols-[7.5rem_minmax(0,1fr)_auto] items-center gap-1">
+                  <Input
+                    value={link.label}
+                    placeholder="Label, e.g. Github"
+                    className="text-[13px]"
+                    onChange={(e) => onChange({ ...entry, links: (entry.links ?? []).map((l, i) => (i === li ? { ...l, label: e.target.value } : l)) })}
+                  />
+                  <Input
+                    value={link.url}
+                    placeholder="https://"
+                    className="text-[13px]"
+                    onChange={(e) => onChange({ ...entry, links: (entry.links ?? []).map((l, i) => (i === li ? { ...l, url: e.target.value } : l)) })}
+                  />
+                  <div className="flex items-center">
+                    {link.url && (
+                      <a href={link.url} target="_blank" rel="noreferrer" className="px-1 text-xs text-subtle hover:text-foreground" title="Open">
+                        ↗
+                      </a>
+                    )}
+                    <Button
+                    size="sm"
+                    variant="ghost"
+                      onClick={() => onChange({ ...entry, links: (entry.links ?? []).filter((_, i) => i !== li) })}
+                    >
+                      ✕
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <Button
+              size="sm"
+              className="mt-2"
+              onClick={() => onChange({ ...entry, links: [...(entry.links ?? []), { label: '', url: '' }] })}
+            >
+              Add link
+            </Button>
+          </div>
         </div>
       )}
     </div>
+  );
+}
+
+function Field({ label, value, onChange }: { label: string; value: string | undefined; onChange: (v: string) => void }) {
+  return (
+    <label className="block">
+      <span className="mb-0.5 block text-xs text-subtle">{label}</span>
+      <Input value={value ?? ''} className="text-[13px]" onChange={(e) => onChange(e.target.value)} />
+    </label>
   );
 }
 
@@ -331,7 +392,7 @@ function AddFromLibrary({
         });
       }}
     >
-      <option value="">+ Add from library ({available.length} available)</option>
+      <option value="">+ Add from My Info ({available.length} not on this CV)</option>
       {available.map((entry) => (
         <option key={entry.id} value={entry.id}>
           {entry.title}
