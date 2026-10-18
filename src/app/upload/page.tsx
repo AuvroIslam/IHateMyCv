@@ -1,17 +1,11 @@
 'use client';
 
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { use, useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from '@/components/AppProvider';
-import CvPreview from '@/components/cv/CvPreview';
 import { Button, ErrorNote, Panel, Spinner, cx } from '@/components/ui/kit';
-import { buildBaseDocument } from '@/lib/assemble';
-import ImportFlow from '@/components/profile/ImportFlow';
 import { api } from '@/lib/client-api';
-import { normalizeProfile, profileFromLibrary } from '@/lib/profile';
 import { parseUpload, toBase64 } from '@/lib/parse-client';
-import type { CareerLibrary, DesignSpec } from '@/types/cv';
 
 type Stage = 'idle' | 'parsing' | 'extracting' | 'done';
 
@@ -43,33 +37,23 @@ function ExtractingNote() {
 }
 
 /**
- * Uploading a CV. Normally it becomes the original - the design CVs follow and
- * the content My Info starts from. With ?as=cv (from My CVs) it is kept as a
- * new CV in its own design instead, leaving the original as it is.
+ * Uploading a CV: it becomes a CV in My CVs, exactly as it looks, in its own
+ * design. Every upload is equal and nothing is replaced. The new CV opens
+ * straight away, and asks whether its information goes into My Info.
  */
-export default function UploadPage({ searchParams }: { searchParams: Promise<{ as?: string | string[] }> }) {
+export default function UploadPage() {
   const router = useRouter();
-  const { refresh, library: existingLibrary, hasApiKey, profile } = useApp();
-  // After an upload: add its information to My Info? Asked once.
-  const [askImport, setAskImport] = useState<'ask' | 'reviewing' | 'answered'>('ask');
-  // A new CV needs an original beside it; the very first upload is always the original.
-  const asCv = use(searchParams).as === 'cv' && Boolean(existingLibrary);
+  const { refresh, hasApiKey } = useApp();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [stage, setStage] = useState<Stage>('idle');
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [fileName, setFileName] = useState('');
-  const [result, setResult] = useState<{
-    design: DesignSpec;
-    library: CareerLibrary;
-    stats: Record<string, number>;
-  } | null>(null);
 
   const handleFile = useCallback(
     async (file: File) => {
       setError(null);
-      setResult(null);
       setFileName(file.name);
       try {
         setStage('parsing');
@@ -91,34 +75,26 @@ export default function UploadPage({ searchParams }: { searchParams: Promise<{ a
           layout: parsed.layout,
           backgrounds: parsed.backgrounds,
           pdf: parsed.kind === 'pdf' ? toBase64(new Uint8Array(await file.arrayBuffer())) : undefined,
-          asTemplate: asCv,
         });
-        if (asCv && extracted.cvId) {
-          await refresh();
-          router.push(`/cv/${extracted.cvId}`);
-          return;
-        }
-
-        setResult(extracted);
         setStage('done');
         await refresh();
+        router.push(extracted.cvId ? `/cv/${extracted.cvId}` : '/cvs');
       } catch (err) {
         setStage('idle');
         setError(err instanceof Error ? err.message : 'Could not read that file.');
       }
     },
-    [refresh, asCv, router],
+    [refresh, router],
   );
 
   const busy = stage === 'parsing' || stage === 'extracting';
 
   return (
     <div className="mx-auto max-w-5xl px-5 py-10">
-      <h1 className="text-2xl font-semibold tracking-tight">{asCv ? 'Upload a CV' : 'Upload your CV'}</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">Upload a CV</h1>
       <p className="mt-2 max-w-2xl text-sm text-subtle">
-        {asCv
-          ? 'It is added to My CVs exactly as it looks, in its own design, to edit by chat or by hand. Its design also becomes one you can choose when tailoring. Your original CV stays as it is.'
-          : 'We read it once: the design is captured so it can be reproduced exactly, and the content is broken into components you can reuse. Your original layout is never redesigned.'}
+        It is added to My CVs exactly as it looks, to edit by chat or by hand, and to start tailored CVs from. Upload as
+        many as you like; each keeps its own design.
       </p>
 
       {!hasApiKey && (
@@ -128,24 +104,6 @@ export default function UploadPage({ searchParams }: { searchParams: Promise<{ a
             Create <code className="rounded bg-foreground/8 px-1">.env.local</code> in the project
             root with <code className="rounded bg-foreground/8 px-1">ANTHROPIC_API_KEY=sk-ant-...</code>{' '}
             and restart the dev server.
-          </p>
-        </Panel>
-      )}
-
-      {existingLibrary && !asCv && stage === 'idle' && (
-        <Panel className="mt-6 border-amber-500/40 p-4 text-sm">
-          <p className="font-medium">You already have an original CV.</p>
-          <p className="mt-1 text-subtle">
-            Uploading a new one replaces it and clears the CVs made in its design. My Info, and CVs you added in
-            their own design, are kept. To keep this file as an extra CV instead, use{' '}
-            <Link href="/upload?as=cv" className="underline">
-              Upload a CV
-            </Link>
-            ; to only add its information, use{' '}
-            <Link href="/profile" className="underline">
-              Import from CVs in My Info
-            </Link>
-            .
           </p>
         </Panel>
       )}
@@ -230,64 +188,6 @@ export default function UploadPage({ searchParams }: { searchParams: Promise<{ a
         </Panel>
       )}
 
-      {stage === 'done' && result && (
-        <div className="mt-8">
-          <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-lg font-semibold">Here is your CV, rebuilt</h2>
-            <span className="text-xs text-subtle">
-              {result.stats.sections} sections · {result.stats.entries} entries ·{' '}
-              {result.stats.bullets} bullets · {result.stats.skills} skills
-            </span>
-          </div>
-          {askImport !== 'answered' ? (
-            <Panel className="mt-4 flex flex-wrap items-center gap-3 border-emerald-500/30 p-4 text-sm">
-              <div className="min-w-0 flex-1">
-                <p className="font-medium">Add the information from this CV to My Info?</p>
-                <p className="mt-0.5 text-subtle">
-                  My Info is what tailoring picks from. You see every change before anything is saved.
-                </p>
-              </div>
-              <Button variant="primary" onClick={() => setAskImport('reviewing')}>
-                Yes, review it
-              </Button>
-              <Button variant="ghost" onClick={() => setAskImport('answered')}>
-                No thanks
-              </Button>
-            </Panel>
-          ) : (
-            <p className="mt-1 max-w-2xl text-sm text-subtle">
-              Next, tailor a CV for a job. You can compare our rebuild with your original under Original CV at any time.
-            </p>
-          )}
-          {askImport === 'reviewing' && (
-            <ImportFlow
-              current={normalizeProfile(profile)}
-              original={null}
-              start={[{ profile: profileFromLibrary(result.library, result.design), from: fileName || 'your CV' }]}
-              onApply={async (next) => {
-                await api.saveProfile(next);
-                await refresh();
-              }}
-              onDone={() => setAskImport('answered')}
-            />
-          )}
-
-          <div className="mt-5 flex flex-wrap gap-2">
-            <Button variant="primary" onClick={() => router.push('/tailor')}>
-              Tailor a CV
-            </Button>
-            <Button onClick={() => router.push('/profile')}>Go to My Info</Button>
-            <Button onClick={() => router.push('/design')}>Compare with the original</Button>
-          </div>
-
-          <div className="mt-6 overflow-hidden rounded-lg bg-foreground/5 p-5">
-            <CvPreview
-              design={result.design}
-              data={buildBaseDocument(result.library, result.design)}
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 }

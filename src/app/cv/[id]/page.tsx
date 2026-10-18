@@ -18,7 +18,7 @@ import type { ChatTurn, CvDocumentData, DesignSpec, SavedCv, SourceMeta } from '
 export default function CvPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { refresh, source, originalDocument, profile } = useApp();
+  const { refresh, source, originalDocument, profile, saveLibrary } = useApp();
   // The design's own upload: the original, or the template this CV follows.
   const [template, setTemplate] = useState<{ id: string; source: SourceMeta; original: CvDocumentData } | null>(null);
   const replica = useReplicaSource(template);
@@ -61,26 +61,28 @@ export default function CvPage() {
     };
   }, [id]);
 
-  // A template's design is fitted to its CV's measured spacing once, the first
-  // time a CV in it is opened (the original's is fitted on the Original CV page).
+  // A design is fitted to its uploaded CV's measured spacing once, the first
+  // time a CV in it is opened.
   const fitTried = useRef(false);
   useEffect(() => {
-    if (!template || !design || design.aligned || fitTried.current) return;
+    const fitTo = template ? template.original : originalDocument;
+    if (!design || design.aligned || !fitTo || fitTried.current) return;
     fitTried.current = true;
     setFitting(true);
     (async () => {
       try {
-        const { layout } = await api.getSourceLayout(template.id);
-        const { design: fitted } = await autoAlign(design, template.original, layout);
-        await api.saveTemplateDesign(template.id, fitted);
-        setDesign({ ...fitted, template: template.id });
+        const { layout } = await api.getSourceLayout(template?.id);
+        const { design: fitted } = await autoAlign(design, fitTo, layout);
+        if (template) await api.saveTemplateDesign(template.id, fitted);
+        else await saveLibrary({ design: fitted });
+        setDesign(template ? { ...fitted, template: template.id } : fitted);
       } catch {
         // Unfitted, it still works; the exact copy does not depend on it.
       } finally {
         setFitting(false);
       }
     })();
-  }, [template, design]);
+  }, [template, design, originalDocument, saveLibrary]);
 
   // Asked once per uploaded CV, whatever the answer.
   const markAsked = useCallback(async () => {
@@ -217,7 +219,6 @@ export default function CvPage() {
       {importing && design && (
         <ImportFlow
           current={normalizeProfile(profile)}
-          original={null}
           start={[{ profile: profileFromDocument(template?.original ?? cv.data, design), from: cv.name }]}
           onApply={async (next) => {
             await api.saveProfile(next);

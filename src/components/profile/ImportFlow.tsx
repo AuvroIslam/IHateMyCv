@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 import { Button, ErrorNote, Spinner, cx } from '@/components/ui/kit';
 import { api } from '@/lib/client-api';
 import { parseUpload } from '@/lib/parse-client';
-import { PROFILE_KINDS } from '@/lib/profile';
+import { PROFILE_KINDS, profileFromDocument } from '@/lib/profile';
 import {
   DETAIL_LABEL,
   type EntryChoice,
@@ -39,14 +39,14 @@ function reviewOf(current: Profile, incoming: { profile: Profile; from: string }
 
 export default function ImportFlow({
   current,
-  original,
+  uploaded = [],
   onApply,
   start,
   onDone,
 }: {
   current: Profile;
-  /** The uploaded CV, already in Profile form, when there is one. */
-  original: Profile | null;
+  /** The owner's uploaded CVs, offered as sources. */
+  uploaded?: { id: string; name: string }[];
   onApply: (next: Profile) => Promise<void>;
   /** Opens straight on the review of these (right after an upload), with no button of its own. */
   start?: { profile: Profile; from: string }[];
@@ -80,6 +80,20 @@ export default function ImportFlow({
       return;
     }
     review(read);
+  };
+
+  /** One of the owner's uploaded CVs, as that CV says it. */
+  const readUploaded = async (u: { id: string; name: string }) => {
+    setError(null);
+    setStage({ step: 'reading', done: 0, total: 1, name: u.name });
+    try {
+      const res = await api.getCv(u.id);
+      if (!res.design) throw new Error('That CV could not be read.');
+      review([{ profile: profileFromDocument(res.template?.original ?? res.cv.data, res.design), from: u.name }]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'That CV could not be read.');
+      setStage({ step: 'pick' });
+    }
   };
 
   const close = () => {
@@ -119,14 +133,18 @@ export default function ImportFlow({
 
           {stage.step === 'pick' && (
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              {original && (
-                <button
-                  onClick={() => review([{ profile: original, from: 'your uploaded CV' }])}
-                  className="rounded-lg border border-line p-4 text-left hover:border-foreground/40"
-                >
-                  <p className="font-medium">Your uploaded CV</p>
-                  <p className="mt-1 text-sm text-subtle">The CV whose design you use. Instant.</p>
-                </button>
+              {uploaded.length > 0 && (
+                <div className="rounded-lg border border-line p-4">
+                  <p className="font-medium">Your uploaded CVs</p>
+                  <p className="mt-1 text-sm text-subtle">Already in the app. Instant.</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {uploaded.map((u) => (
+                      <Button key={u.id} size="sm" onClick={() => void readUploaded(u)}>
+                        {u.name}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
               )}
               <button
                 onClick={() => fileRef.current?.click()}

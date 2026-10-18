@@ -16,6 +16,7 @@ import {
 } from '@/lib/prompts';
 import { contentSchema, designBodySchema, designPageSchema, tagsSchema, type ExtractionResult } from '@/lib/schemas';
 import { mutateStore, readStore, savePageBackgrounds, savePageImages, saveSourceFonts, saveSourceLayout } from '@/lib/store';
+import { firstCv } from '@/lib/state';
 import { MAX_TEMPLATES } from '@/lib/templates';
 import { workspaceId } from '@/lib/workspace';
 import type { SavedCv, SourceLayout, UploadedFont } from '@/types/cv';
@@ -72,9 +73,11 @@ export async function POST(request: Request) {
     const body = (await request.json()) as ExtractBody;
     const textDump = body.textDump?.trim();
     if (!textDump) return jsonError('No text could be read from that file.');
-    // A template needs an original to sit beside; the very first upload is the original.
+    // Every upload becomes a CV of its own. The first is stored as the base
+    // (store.design / store.library); every later one as a template beside it.
+    // Nothing is ever replaced.
     const current = await readStore();
-    const templateId = body.asTemplate && current.library && current.design ? newId() : undefined;
+    const templateId = current.library && current.design ? newId() : undefined;
     if (templateId && (current.templates ?? []).length >= MAX_TEMPLATES) {
       return jsonError(`You can keep up to ${MAX_TEMPLATES} uploaded CVs besides your original. Delete one in My CVs first.`, 409);
     }
@@ -194,24 +197,24 @@ export async function POST(request: Request) {
       return Response.json({ design, library, stats, cvId: cv.id });
     }
 
-    await mutateStore((store) => {
+    const { result: cvId } = await mutateStore((store) => {
       store.design = design;
       store.library = library;
-      // At this moment the library is exactly the original CV, so this is the
-      // reference every later design check is compared against.
+      // At this moment the library is exactly the CV, so this is the
+      // reference its exact copy and design checks compare against.
       store.original = buildBaseDocument(library, design);
       store.source = source;
-      // The library was rebuilt from a new source document, so CVs made in the
-      // original's design reference entry ids that no longer exist. CVs in
-      // their own templates are untouched.
-      store.cvs = store.cvs.filter((c) => c.templateId);
+      store.firstHidden = false;
+      const cv = firstCv(store);
+      store.cvs.unshift(cv);
+      return cv.id;
     });
 
     // Tagging outlives the request, so it takes this workspace along.
     const ws = await workspaceId();
     after(() => tagLibrary(uploadedAt, ws));
 
-    return Response.json({ design, library, stats });
+    return Response.json({ design, library, stats, cvId });
   } catch (err) {
     return handleRouteError(err);
   }

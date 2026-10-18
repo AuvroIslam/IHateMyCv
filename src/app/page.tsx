@@ -7,8 +7,8 @@ import { PROFILE_KINDS, normalizeProfile } from '@/lib/profile';
 
 const STEPS = [
   {
-    title: 'Upload your CV',
-    body: 'We capture its design exactly (fonts, spacing, layout) so every CV you make looks like yours.',
+    title: 'Upload your CVs',
+    body: 'Each one is kept exactly as it looks (fonts, spacing, layout), ready to edit or to start tailored CVs from.',
   },
   {
     title: 'Add everything about you',
@@ -21,7 +21,7 @@ const STEPS = [
 ];
 
 export default function HomePage() {
-  const { library, design, source, cvs, profile, loading } = useApp();
+  const { library, design, cvs, profile, loading } = useApp();
 
   if (loading) {
     return (
@@ -115,19 +115,6 @@ export default function HomePage() {
         </div>
       )}
 
-      {source && (
-        <p className="mt-8 text-xs text-subtle">
-          Design from <span className="text-foreground">{source.fileName}</span>, uploaded{' '}
-          <LocalDate iso={source.uploadedAt} />.{' '}
-          <Link href="/design" className="underline hover:text-foreground">
-            View original
-          </Link>{' '}
-          ·{' '}
-          <Link href="/upload" className="underline hover:text-foreground">
-            Use a different CV
-          </Link>
-        </p>
-      )}
     </div>
   );
 }

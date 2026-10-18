@@ -1,4 +1,3 @@
-import { norm } from '@/lib/profile';
 import type { CareerLibrary, CvDocumentData, DesignSpec, SavedCv, SourceMeta, Store, Template } from '@/types/cv';
 
 /**
@@ -19,19 +18,19 @@ export interface DesignContext {
 }
 
 /**
- * Everything a CV in one design works with: the original's, or a template's.
- *
- * A template lends its design, not its content - an uploaded CV may not even
- * be the owner's. So a CV made in a template's design draws on the owner's own
- * material: the original CV's items under the template's sections of the same
- * kind (projects with projects), with My Info over them (withProfile). Only
- * the uploaded CV itself (`own`) also works with what that file said.
+ * Everything a CV in one design works with. Every uploaded CV is the owner's
+ * and stands on its own: working on one (or tailoring from it) uses its design
+ * and its own content (`own`), with My Info over them (withProfile). A CV made
+ * in its design that is not that CV itself draws on My Info alone. The first
+ * upload is stored apart from the rest (store.design / store.library), but is
+ * treated the same.
  */
-export function designContext(store: Store, templateId?: string | null, own = false): DesignContext | null {
+export function designContext(store: Store, templateId?: string | null, own = true): DesignContext | null {
   const template = templateId ? (store.templates ?? []).find((t) => t.id === templateId) ?? null : null;
   if (!template) {
     if (!store.design || !store.library) return null;
-    return { design: store.design, library: store.library, original: store.original ?? null, source: store.source, template: null };
+    const library = own ? store.library : { ...store.library, summaryVariants: [], entries: [], skillGroups: [] };
+    return { design: store.design, library, original: store.original ?? null, source: store.source, template: null };
   }
   // Borrowed, the design leaves out the header's fixed lines (that CV's motto or tagline).
   const literals = template.design.header.template?.literals;
@@ -39,39 +38,12 @@ export function designContext(store: Store, templateId?: string | null, own = fa
     own || !literals?.length
       ? template.design
       : { ...template.design, header: { ...template.design.header, template: { ...template.design.header.template!, literals: [] } } };
-  const main = store.library;
-  const base = own ? template.library : { personal: main?.personal ?? template.library.personal, summaryVariants: [], entries: [], skillGroups: [] };
-  if (!main || !store.design) return { design, library: base, original: template.original, source: template.source, template };
-
-  const typeOf = new Map(store.design.sections.map((s) => [s.id, s.type]));
-  const target = (sectionId: string) => {
-    const type = typeOf.get(sectionId);
-    return type ? design.sections.find((s) => s.type === type)?.id : undefined;
-  };
-  const entries = [...base.entries];
-  for (const e of main.entries) {
-    const sectionId = target(e.sectionId);
-    if (!sectionId || entries.some((x) => x.sectionId === sectionId && norm(x.title) === norm(e.title))) continue;
-    entries.push({ ...e, id: `o-${e.id}`, sectionId });
-  }
-  const skillGroups = [...base.skillGroups];
-  for (const g of main.skillGroups) {
-    const sectionId = target(g.sectionId);
-    if (!sectionId || skillGroups.some((x) => norm(x.category) === norm(g.category))) continue;
-    skillGroups.push({ ...g, id: `o-${g.id}`, sectionId });
-  }
-  const summaryVariants = [
-    ...base.summaryVariants,
-    ...main.summaryVariants.filter((v) => !base.summaryVariants.some((x) => norm(x.text) === norm(v.text))).map((v) => ({ ...v, id: `o-${v.id}` })),
-  ];
-  return {
-    design,
-    library: { ...base, entries, skillGroups, summaryVariants },
-    original: template.original,
-    source: template.source,
-    template,
-  };
+  const library = own ? template.library : { ...template.library, summaryVariants: [], entries: [], skillGroups: [] };
+  return { design, library, original: template.original, source: template.source, template };
 }
 
-export const contextOf = (store: Store, cv: SavedCv) =>
-  designContext(store, cv.templateId, Boolean(cv.uploaded)) ?? designContext(store, null);
+/**
+ * A CV's context. Tailored CVs keep working from the content they were made
+ * from (tailoring started from that CV) - so the same as the CV itself.
+ */
+export const contextOf = (store: Store, cv: SavedCv) => designContext(store, cv.templateId, true) ?? designContext(store, null);

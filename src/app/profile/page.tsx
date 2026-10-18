@@ -8,7 +8,7 @@ import ImportFlow from '@/components/profile/ImportFlow';
 import { Button, ErrorNote, Input, Panel, Spinner, Textarea, cx } from '@/components/ui/kit';
 import { api } from '@/lib/client-api';
 import { newId } from '@/lib/id';
-import { PROFILE_KINDS, normalizeProfile, profileFromLibrary } from '@/lib/profile';
+import { PROFILE_KINDS, normalizeProfile } from '@/lib/profile';
 import type { LibraryEntry, Profile, ProfileKind, ProfileSkills } from '@/types/cv';
 
 type Tab = 'about' | ProfileKind | 'skills';
@@ -18,7 +18,7 @@ type Tab = 'about' | ProfileKind | 'skills';
  * the chat pick from it; nothing here is printed until it is chosen for a CV.
  */
 export default function MyInfoPage() {
-  const { profile, library, design, refresh } = useApp();
+  const { profile, library, refresh, cvs } = useApp();
   const [draft, setDraft] = useState<Profile | null>(null);
   const [tab, setTab] = useState<Tab>('about');
   const [fresh, setFresh] = useState<Set<string>>(new Set());
@@ -33,7 +33,6 @@ export default function MyInfoPage() {
   }
 
   const saved = useMemo(() => JSON.stringify(normalizeProfile(profile)), [profile]);
-  const original = useMemo(() => (library && design ? profileFromLibrary(library, design) : null), [library, design]);
   if (!draft) return null;
   const dirty = JSON.stringify(draft) !== saved;
 
@@ -94,7 +93,7 @@ export default function MyInfoPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <ImportFlow current={draft} original={original} onApply={save} />
+          <ImportFlow current={draft} uploaded={cvs.filter((c) => c.uploaded).map((c) => ({ id: c.id, name: c.name }))} onApply={save} />
           <Button variant="primary" onClick={() => void save().catch(() => undefined)} disabled={!dirty || saving}>
             {saving && <Spinner />}
             {dirty ? 'Save' : 'Saved'}

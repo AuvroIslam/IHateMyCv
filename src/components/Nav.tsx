@@ -15,7 +15,7 @@ const LINKS = [
 
 export default function Nav() {
   const pathname = usePathname();
-  const { library, hasApiKey, loading, signIn, account } = useApp();
+  const { hasApiKey, loading, signIn, account } = useApp();
   // Signed out (the login page): no app links to offer.
   const signedOut = Boolean(signIn && !account);
 
@@ -54,14 +54,6 @@ export default function Nav() {
             <span className="rounded bg-amber-500/15 px-2 py-1 text-amber-700 dark:text-amber-400">
               No API key
             </span>
-          )}
-          {library && !signedOut && (
-            <Link
-              href="/design"
-              className={cx('hover:text-foreground', (pathname === '/design' || pathname === '/library') && 'text-foreground')}
-            >
-              Original CV
-            </Link>
           )}
           {account && (
             <>

@@ -692,6 +692,8 @@ export interface Profile {
  */
 export interface Template {
   id: string;
+  /** Its own CV was deleted: no longer offered to tailor from, kept while other CVs use its design. */
+  hidden?: boolean;
   design: DesignSpec;
   /** What that CV said, in its own sections. */
   library: CareerLibrary;
@@ -720,6 +722,12 @@ export interface Store {
   /** The original CV's content exactly as extracted, for side-by-side checks. */
   original?: CvDocumentData | null;
   cvs: SavedCv[];
+  /**
+   * The first upload's own CV was deleted: its design is no longer offered.
+   * (The first upload is stored apart from the rest, but to the owner every
+   * uploaded CV is the same.)
+   */
+  firstHidden?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -729,8 +737,10 @@ export interface Store {
 export interface CvSummary {
   id: string;
   name: string;
-  /** The file whose design it follows, when that is not the original. */
+  /** The uploaded file whose design it follows (absent for an uploaded CV itself). */
   template?: string;
+  /** An uploaded CV itself, rather than one made from it. */
+  uploaded?: boolean;
   jobTitle?: string;
   company?: string;
   createdAt: string;

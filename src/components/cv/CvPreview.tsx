@@ -393,7 +393,7 @@ export default function CvPreview({
       {!exact && pageCount > (targetPages ?? 1) && (
         <p className="no-print mt-3 text-xs text-amber-700 dark:text-amber-400">
           This CV runs to {pageCount} pages
-          {targetPages ? `; your original was ${targetPages}` : ''}. Drop an entry or a few
+          {targetPages ? `; the CV it started from had ${targetPages}` : ''}. Drop an entry or a few
           bullets to pull it back.
         </p>
       )}

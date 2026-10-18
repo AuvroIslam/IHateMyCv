@@ -11,8 +11,10 @@ export default function TailorPage() {
   const router = useRouter();
   const { library, design, loading, refresh, templates } = useApp();
   const [jd, setJd] = useState('');
-  /** The uploaded CV whose design to follow; null for the original's. */
-  const [templateId, setTemplateId] = useState<string | null>(null);
+  /** The uploaded CV to start from: its design and content (null: the first one uploaded). */
+  const [picked, setPicked] = useState<string | null | undefined>(undefined);
+  // Until one is picked, the first listed (the earliest upload still offered).
+  const templateId = picked !== undefined && templates.some((t) => t.id === picked) ? picked : (templates[0]?.id ?? null);
   const [reword, setReword] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,12 +27,12 @@ export default function TailorPage() {
     );
   }
 
-  if (!library || !design) {
+  if (!library || !design || templates.length === 0) {
     return (
       <div className="mx-auto max-w-2xl px-5 py-20">
         <EmptyState
           title="Upload a CV first"
-          body="Tailoring needs your CV first: its design is what every tailored CV looks like."
+          body="Tailoring starts from one of your CVs: upload one to begin."
           action={
             <Link href="/upload">
               <Button variant="primary">Upload your CV</Button>
@@ -60,14 +62,15 @@ export default function TailorPage() {
     <div className="mx-auto max-w-3xl px-5 py-10">
       <h1 className="text-2xl font-semibold tracking-tight">Tailor a CV</h1>
       <p className="mt-2 text-sm text-subtle">
-        Paste a job posting. The AI picks the jobs, projects and skills from My Info that fit it best, rewords
-        them in the job&apos;s terms so applicant tracking systems find them (your facts stay the same), and lays
-        them out in the design you choose. What the job asks for that you have not shown is listed under Job match.
+        Pick one of your CVs and paste a job posting. Starting from that CV, the AI keeps what fits the job, swaps in
+        better matches from My Info, and rewords it in the job&apos;s terms so applicant tracking systems find them
+        (your facts stay the same). What the job asks for that you have not shown is listed under Job match.
       </p>
 
-      {templates.length > 1 && (
+      {templates.length > 0 && (
         <div className="mt-6">
-          <p className="text-sm font-medium">Follow the design of</p>
+          <p className="text-sm font-medium">Start from</p>
+          <p className="text-xs text-subtle">Its design and content, with My Info added in for the job.</p>
           <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
             {templates.map((t) => {
               const chosen = t.id === templateId;
@@ -76,7 +79,7 @@ export default function TailorPage() {
                 <button
                   key={t.id ?? 'original'}
                   type="button"
-                  onClick={() => setTemplateId(t.id)}
+                  onClick={() => setPicked(t.id)}
                   disabled={busy}
                   className={cx(
                     'overflow-hidden rounded-lg border text-left transition-colors',
@@ -87,7 +90,7 @@ export default function TailorPage() {
                   <img src={thumb} alt="" className="aspect-[1/1.3] w-full bg-white object-cover object-top" />
                   <span className="block truncate px-2 pt-1.5 text-xs font-medium">{t.fileName}</span>
                   <span className="block px-2 pb-1.5 text-[11px] text-subtle">
-                    {t.id ? 'Uploaded CV' : 'Your original'} · {t.pageCount} page{t.pageCount === 1 ? '' : 's'}
+                    {t.pageCount} page{t.pageCount === 1 ? '' : 's'}
                   </span>
                 </button>
               );

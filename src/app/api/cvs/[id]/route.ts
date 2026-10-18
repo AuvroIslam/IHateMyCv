@@ -53,7 +53,13 @@ export async function DELETE(_request: Request, context: RouteContext<'/api/cvs/
       const cv = store.cvs.find((c) => c.id === id);
       if (!cv) return null;
       store.cvs = store.cvs.filter((c) => c.id !== id);
-      // A template no CV follows any more goes with its last CV.
+      // An uploaded CV deleted: its design is no longer offered to tailor from.
+      if (cv.uploaded && !cv.templateId) store.firstHidden = true;
+      if (cv.uploaded && cv.templateId) {
+        const t = (store.templates ?? []).find((x) => x.id === cv.templateId);
+        if (t) t.hidden = true;
+      }
+      // A template no CV follows any more goes, files and all.
       const orphan = cv.templateId && !store.cvs.some((c) => c.templateId === cv.templateId) ? cv.templateId : null;
       if (orphan) store.templates = (store.templates ?? []).filter((t) => t.id !== orphan);
       return { orphan };

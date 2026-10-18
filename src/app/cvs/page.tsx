@@ -38,10 +38,8 @@ export default function CvsPage() {
       await refresh();
     });
 
-  const remove = (id: string, name: string, template?: string) => {
-    // The last CV in an uploaded design takes the design with it.
-    const last = template && cvs.filter((c) => c.template === template).length === 1;
-    const note = last ? ` Its design (${template}) will no longer be available when tailoring.` : '';
+  const remove = (id: string, name: string, uploaded: boolean) => {
+    const note = uploaded ? ' It will no longer be offered to start tailored CVs from; CVs made from it are kept.' : '';
     if (!confirm(`Delete "${name}"? This cannot be undone.${note}`)) return;
     void run(`del:${id}`, async () => {
       await api.deleteCv(id);
@@ -50,7 +48,7 @@ export default function CvsPage() {
   };
 
   const newCv = library && (
-    <Link href="/upload?as=cv">
+    <Link href="/upload">
       <Button variant="primary">+ New CV</Button>
     </Link>
   );
@@ -83,7 +81,7 @@ export default function CvsPage() {
                 : 'Upload your CV to get started.'
             }
             action={
-              <Link href={library ? '/upload?as=cv' : '/upload'}>
+              <Link href={library ? '/upload' : '/upload'}>
                 <Button variant="primary">{library ? '+ New CV' : 'Upload your CV'}</Button>
               </Link>
             }
@@ -97,9 +95,10 @@ export default function CvsPage() {
                     <p className="truncate text-sm font-medium">{cv.name}</p>
                     <p className="text-xs text-subtle">
                       Updated <LocalDate iso={cv.updatedAt} withTime />
-                      {cv.template && <> · design from {cv.template}</>}
+                      {cv.template && <> · made from {cv.template.replace(/\.[a-z0-9]+$/i, '')}</>}
                     </p>
                   </div>
+                  {cv.uploaded && <Badge>Uploaded</Badge>}
                   {cv.matchScore !== null && (
                     <Badge tone={cv.matchScore >= 70 ? 'good' : cv.matchScore >= 45 ? 'warn' : 'bad'}>
                       {cv.matchScore}% match
@@ -109,7 +108,7 @@ export default function CvsPage() {
                 <Button size="sm" variant="ghost" disabled={Boolean(busy)} onClick={() => void duplicate(cv.id)}>
                   {busy === `copy:${cv.id}` ? <Spinner /> : 'Duplicate'}
                 </Button>
-                <Button size="sm" variant="danger" disabled={Boolean(busy)} onClick={() => remove(cv.id, cv.name, cv.template)}>
+                <Button size="sm" variant="danger" disabled={Boolean(busy)} onClick={() => remove(cv.id, cv.name, Boolean(cv.uploaded))}>
                   {busy === `del:${cv.id}` ? <Spinner /> : 'Delete'}
                 </Button>
               </li>
