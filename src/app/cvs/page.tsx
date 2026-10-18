@@ -1,19 +1,16 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useApp } from '@/components/AppProvider';
-import { Badge, Button, EmptyState, ErrorNote, LocalDate, Panel, Spinner } from '@/components/ui/kit';
+import { Badge, Button, EmptyState, ErrorNote, LocalDate, Spinner } from '@/components/ui/kit';
 import { api } from '@/lib/client-api';
 
-/** Every CV the owner has made: open, duplicate, delete, or start a new one. */
+/** Every CV the owner has made: open, duplicate, delete, or upload a new one. */
 export default function CvsPage() {
   const { cvs, library, loading, refresh } = useApp();
-  const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [choosing, setChoosing] = useState(false);
 
   if (loading) {
     return (
@@ -35,11 +32,10 @@ export default function CvsPage() {
     }
   };
 
-  const create = (copyOf?: string) =>
-    run(copyOf ? `copy:${copyOf}` : 'new', async () => {
-      const { cv } = await api.createBlankCv(copyOf);
+  const duplicate = (copyOf: string) =>
+    run(`copy:${copyOf}`, async () => {
+      await api.createBlankCv(copyOf);
       await refresh();
-      if (!copyOf) router.push(`/cv/${cv.id}`);
     });
 
   const remove = (id: string, name: string, template?: string) => {
@@ -54,35 +50,9 @@ export default function CvsPage() {
   };
 
   const newCv = library && (
-    <div className="relative">
-      <Button variant="primary" onClick={() => setChoosing((v) => !v)}>
-        + New CV
-      </Button>
-      {choosing && (
-        <Panel className="absolute right-0 z-20 mt-2 w-80 p-1 shadow-lg">
-          <Link href="/upload?as=cv" className="block rounded-md px-3 py-2 hover:bg-foreground/5">
-            <span className="block text-sm font-medium">Upload a CV</span>
-            <span className="block text-xs text-subtle">
-              Another CV file, kept exactly as it looks. Its design can then be used when tailoring.
-            </span>
-          </Link>
-          <Link href="/tailor" className="block rounded-md px-3 py-2 hover:bg-foreground/5">
-            <span className="block text-sm font-medium">Tailored for a job</span>
-            <span className="block text-xs text-subtle">Paste a job posting; the best fit from My Info is picked.</span>
-          </Link>
-          <button
-            onClick={() => {
-              setChoosing(false);
-              void create();
-            }}
-            className="block w-full rounded-md px-3 py-2 text-left hover:bg-foreground/5"
-          >
-            <span className="block text-sm font-medium">Copy of your original CV</span>
-            <span className="block text-xs text-subtle">Your uploaded CV as it is, to change by chat or by hand.</span>
-          </button>
-        </Panel>
-      )}
-    </div>
+    <Link href="/upload?as=cv">
+      <Button variant="primary">+ New CV</Button>
+    </Link>
   );
 
   return (
@@ -102,20 +72,19 @@ export default function CvsPage() {
           <ErrorNote>{error}</ErrorNote>
         </div>
       )}
-      {busy === 'new' && (
-        <p className="mt-4 flex items-center gap-2 text-sm text-subtle">
-          <Spinner /> Creating…
-        </p>
-      )}
 
       <div className="mt-8">
         {cvs.length === 0 ? (
           <EmptyState
             title="No CVs yet"
-            body={library ? 'Make your first one with + New CV.' : 'Upload your CV to get started.'}
+            body={
+              library
+                ? 'Upload a CV to add it here exactly as it looks, or make one for a job in Tailor a CV.'
+                : 'Upload your CV to get started.'
+            }
             action={
-              <Link href={library ? '/tailor' : '/upload'}>
-                <Button variant="primary">{library ? 'Tailor a CV' : 'Upload your CV'}</Button>
+              <Link href={library ? '/upload?as=cv' : '/upload'}>
+                <Button variant="primary">{library ? '+ New CV' : 'Upload your CV'}</Button>
               </Link>
             }
           />
@@ -137,7 +106,7 @@ export default function CvsPage() {
                     </Badge>
                   )}
                 </Link>
-                <Button size="sm" variant="ghost" disabled={Boolean(busy)} onClick={() => void create(cv.id)}>
+                <Button size="sm" variant="ghost" disabled={Boolean(busy)} onClick={() => void duplicate(cv.id)}>
                   {busy === `copy:${cv.id}` ? <Spinner /> : 'Duplicate'}
                 </Button>
                 <Button size="sm" variant="danger" disabled={Boolean(busy)} onClick={() => remove(cv.id, cv.name, cv.template)}>
