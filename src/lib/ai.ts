@@ -9,7 +9,15 @@ import { toJSONSchema, type z } from 'zod';
 import { freeKeys, markExhausted, monthSpend, orderKeys, recordSpend, recordUsage, type Tier, usableKeys } from './usage';
 
 /** Every job the app sends to a model. */
-export type Task = 'cv_design' | 'cv_content' | 'cv_tags' | 'library_import' | 'profile_import' | 'tailoring_plan' | 'cv_chat';
+export type Task =
+  | 'cv_design'
+  | 'cv_content'
+  | 'cv_tags'
+  | 'library_import'
+  | 'profile_import'
+  | 'tailoring_plan'
+  | 'tailor_rewrite'
+  | 'cv_chat';
 
 /**
  * Claude model per job, each the cheapest that does it well. Override any
@@ -27,6 +35,7 @@ const CLAUDE_MODELS: Record<Task, string> = {
   cv_content: 'claude-sonnet-5-5',
   profile_import: 'claude-haiku-5-5',
   tailoring_plan: 'claude-sonnet-5-5',
+  tailor_rewrite: 'claude-sonnet-5-5',
   cv_chat: 'claude-sonnet-5-5',
   cv_tags: 'claude-haiku-5-5',
   library_import: 'claude-haiku-5-5',

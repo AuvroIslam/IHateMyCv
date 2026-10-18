@@ -13,6 +13,7 @@ export default function TailorPage() {
   const [jd, setJd] = useState('');
   /** The uploaded CV whose design to follow; null for the original's. */
   const [templateId, setTemplateId] = useState<string | null>(null);
+  const [reword, setReword] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,7 +45,7 @@ export default function TailorPage() {
     setBusy(true);
     setError(null);
     try {
-      const { cv } = await api.tailor(jd, templateId);
+      const { cv } = await api.tailor(jd, templateId, reword);
       await refresh();
       router.push(`/cv/${cv.id}`);
     } catch (err) {
@@ -59,8 +60,9 @@ export default function TailorPage() {
     <div className="mx-auto max-w-3xl px-5 py-10">
       <h1 className="text-2xl font-semibold tracking-tight">Tailor a CV</h1>
       <p className="mt-2 text-sm text-subtle">
-        Paste a job posting. The AI picks the jobs, projects and skills from My Info that fit it best and lays
-        them out in the design you choose. You can then fine-tune it by chat.
+        Paste a job posting. The AI picks the jobs, projects and skills from My Info that fit it best, rewords
+        them in the job&apos;s terms so applicant tracking systems find them (your facts stay the same), and lays
+        them out in the design you choose. What the job asks for that you have not shown is listed under Job match.
       </p>
 
       {templates.length > 1 && (
@@ -112,11 +114,17 @@ export default function TailorPage() {
           {wordCount} words
           {jd.trim().length > 0 && jd.trim().length < 80 && ' · paste a bit more'}
         </span>
+        <label className="ml-auto flex cursor-pointer items-center gap-2 text-xs text-subtle">
+          <input type="checkbox" checked={reword} onChange={(e) => setReword(e.target.checked)} disabled={busy} />
+          Reword for this job (facts stay the same)
+        </label>
       </div>
 
       {busy && (
         <p className="mt-3 text-xs text-subtle">
-          Usually about 20 seconds. The model is ranking every component against the posting.
+          {reword
+            ? 'Usually about 30 seconds: choosing what fits the job, then rewording it.'
+            : 'Usually about 20 seconds. The model is ranking every component against the posting.'}
         </p>
       )}
 

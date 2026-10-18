@@ -5,6 +5,7 @@ import { newId } from '@/lib/id';
 import { TAILOR_SYSTEM, tailorUserPrompt } from '@/lib/prompts';
 import { tailorSchema } from '@/lib/schemas';
 import { withProfile } from '@/lib/profile';
+import { REWRITE_SYSTEM, applyRewrite, rewriteSchema, rewriteUserPrompt, rewriteView } from '@/lib/tailor-rewrite';
 import { designContext } from '@/lib/templates';
 import { mutateStore, readStore } from '@/lib/store';
 import type { SavedCv } from '@/types/cv';
@@ -14,7 +15,12 @@ export const maxDuration = 300;
 
 export async function POST(request: Request) {
   try {
-    const { jobDescription, templateId } = (await request.json()) as { jobDescription?: string; templateId?: string | null };
+    const { jobDescription, templateId, reword = true } = (await request.json()) as {
+      jobDescription?: string;
+      templateId?: string | null;
+      /** Step two: fit the chosen material's wording to the job. On unless turned off. */
+      reword?: boolean;
+    };
     const jd = jobDescription?.trim();
     if (!jd) return jsonError('Paste a job description first.');
     if (jd.length < 80) {
@@ -41,6 +47,23 @@ export async function POST(request: Request) {
     });
 
     const { data, report } = applyTailorPlan(library, ctx.design, plan);
+
+    if (reword) {
+      // Rewording is a refinement: if it fails, the chosen material stands as written.
+      try {
+        const view = rewriteView(data, ctx.design);
+        const result = await generateStructured({
+          system: REWRITE_SYSTEM,
+          user: rewriteUserPrompt(view.text, jd, facts),
+          schema: rewriteSchema,
+          name: 'tailor_rewrite',
+          effort: 'medium',
+        });
+        report.reworded = applyRewrite(data, ctx.design, view.refs, result);
+      } catch (err) {
+        console.error('Rewording for the job failed; keeping the original wording:', err);
+      }
+    }
     const now = new Date().toISOString();
 
     const cv: SavedCv = {

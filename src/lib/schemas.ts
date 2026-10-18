@@ -361,7 +361,7 @@ export const tailorSchema = z.object({
     z.object({
       keyword: z.string(),
       covered: z.boolean(),
-      evidence: z.string().nullable().describe('Which entry or bullet covers it'),
+      evidence: z.string().nullable().describe('Which entry or bullet covers it, in words a reader understands ("PulseBand: Firebase offline sync"); never ids'),
     }),
   ),
   sections: z.array(

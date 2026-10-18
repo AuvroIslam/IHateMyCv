@@ -76,10 +76,10 @@ export const api = {
     ),
 
   /** `templateId`: the uploaded CV whose design to follow; null or absent for the original's. */
-  tailor: (jobDescription: string, templateId?: string | null) =>
+  tailor: (jobDescription: string, templateId?: string | null, reword = true) =>
     call<{ cv: SavedCv }>('/api/tailor', {
       method: 'POST',
-      body: JSON.stringify({ jobDescription, templateId }),
+      body: JSON.stringify({ jobDescription, templateId, reword }),
     }),
 
   saveTemplateDesign: (id: string, design: DesignSpec) =>

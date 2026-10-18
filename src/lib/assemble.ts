@@ -1,4 +1,5 @@
 import { newId, slugify } from './id';
+import { shapeLike } from './shape';
 import type { ExtractionResult, ImportResult, TailorResult } from './schemas';
 import type {
   CareerLibrary,
@@ -444,12 +445,17 @@ export function applyTailorPlan(
     // holds, so a grown library cannot spill onto a second page.
     const chosen = (planned.length ? planned : available).slice(0, limits.entries);
 
-    const entries = chosen.map((e) => {
+    const rendered = chosen.map((e) => {
       usedEntryIds.add(e.id);
       included.push(`${e.title}${e.subtitle ? ` — ${e.subtitle}` : ''}`);
       const ids = (planned.length && bulletPlan.get(e.id)) || e.bullets.map((b) => b.id);
       return renderEntry(e, ids, limits.bullets);
     });
+    // Items brought in from My Info (p-) or another CV (o-) take the shape of
+    // the section's own entries: their fields, and blank link slots to fill.
+    const brought = (e: RenderedEntry) => /^[po]-/.test(e.entryId ?? '');
+    const natives = rendered.filter((e) => !brought(e));
+    const entries = rendered.map((e) => (brought(e) && natives.length ? shapeLike(e, natives) : e));
 
     return { sectionId: def.id, entries, skillGroups: [] };
   });

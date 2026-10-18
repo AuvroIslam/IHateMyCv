@@ -426,6 +426,8 @@ export interface PersonalInfo {
 export interface EntryLink {
   label: string;
   url: string;
+  /** A slot left for the owner to fill (its siblings have such a link, this item had none): not printed until it has a URL. */
+  blank?: boolean;
 }
 
 /**
@@ -609,6 +611,8 @@ export interface MatchReport {
   excluded: string[];
   gaps: string[];
   rationale: string;
+  /** What tailoring reworded for the job, one line each; absent when it only chose. */
+  reworded?: string[];
 }
 
 /** One message in a CV's editing chat. */

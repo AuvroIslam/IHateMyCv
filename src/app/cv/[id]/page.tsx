@@ -273,6 +273,21 @@ function MatchReportView({ report }: { report: NonNullable<SavedCv['report']> })
         <p className="mt-2 text-subtle">{report.rationale}</p>
       </Panel>
 
+      {report.reworded && report.reworded.length > 0 && (
+        <div>
+          <p className="text-xs font-medium tracking-wide text-subtle uppercase">Reworded for this job</p>
+          <ul className="mt-2 space-y-1">
+            {report.reworded.map((line) => (
+              <li key={line} className="flex gap-2">
+                <span className="text-emerald-600">✓</span>
+                {line}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-xs text-subtle">Facts are unchanged: the words now match the posting. Undo any of it in Edit.</p>
+        </div>
+      )}
+
       <div>
         <p className="text-xs font-medium tracking-wide text-subtle uppercase">
           Requirements covered ({covered.length}/{report.keywords.length})

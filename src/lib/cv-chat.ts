@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { shapeLike } from '@/lib/shape';
 import { COLOR, DESIGN_PROPS, DESIGN_PROP_KEYS, type DesignProp, describeProp, styledDesign, validProp } from '@/lib/cv-style';
 import { FONT_KEYS } from '@/lib/fonts';
 import type {
@@ -390,8 +391,15 @@ export function applyEdit(
         group: x.group,
         bullets: x.bullets.map((b) => b.text),
       };
-      place(s.entries, entry, pos);
-      return { ok: true, message: `Added "${x.title}" with ${x.bullets.length} bullets.`, change: `Added ${label(entry)} from your library` };
+      // Shaped like the section's other entries; link slots it lacks are left blank for the owner.
+      const shaped = shapeLike(entry, s.entries);
+      place(s.entries, shaped, pos);
+      const blanks = (shaped.links ?? []).filter((l) => l.blank).map((l) => l.label);
+      return {
+        ok: true,
+        message: `Added "${x.title}" with ${shaped.bullets.length} bullets.${blanks.length ? ` It has no ${blanks.join(' or ')} link; the owner can add it on the Edit tab.` : ''}`,
+        change: `Added ${label(shaped)} from My Info`,
+      };
     }
 
     case 'add_entry': {

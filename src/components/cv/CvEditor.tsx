@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Button, Input, Panel, Textarea, cx } from '@/components/ui/kit';
 import { bulletPrintOf } from '@/lib/assemble';
+import { shapeLike } from '@/lib/shape';
 import type {
   CareerLibrary,
   CvDocumentData,
@@ -178,8 +179,9 @@ export default function CvEditor({
                     library={library}
                     sectionId={def.id}
                     used={section.entries.map((e) => e.entryId).filter(Boolean) as string[]}
+                    // Shaped like the section's other entries: their fields, their link slots.
                     onAdd={(entry) =>
-                      patchSection(def.id, (s) => ({ ...s, entries: [...s.entries, entry] }))
+                      patchSection(def.id, (s) => ({ ...s, entries: [...s.entries, shapeLike(entry, s.entries)] }))
                     }
                   />
                 )}
@@ -311,7 +313,7 @@ function EntryEditor({
                   />
                   <Input
                     value={link.url}
-                    placeholder="https://"
+                    placeholder={link.blank ? 'Add the URL (not shown until filled)' : 'https://'}
                     className="text-[13px]"
                     onChange={(e) => onChange({ ...entry, links: (entry.links ?? []).map((l, i) => (i === li ? { ...l, url: e.target.value } : l)) })}
                   />

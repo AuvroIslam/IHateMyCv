@@ -926,7 +926,7 @@ function Entry({
   };
   const layout = sectionLayout ?? e.layout;
   const joiner = sectionJoiner ?? e.titleJoiner;
-  const links = (entry.links ?? []).filter((l) => l.label.trim());
+  const links = (entry.links ?? []).filter((l) => l.label.trim() && !(l.blank && !l.url.trim()));
 
   const titleStyle: CSSProperties = { fontSize: pt(e.titleSizePt), fontWeight: e.titleWeight };
   const subtitleStyle: CSSProperties = {
@@ -986,7 +986,7 @@ function Entry({
     <>
       <Bullets
         design={design}
-        bullets={entry.bullets}
+        bullets={entry.bullets.filter((b) => b.trim())}
         links={bulletLinks}
         print={entry.bulletPrint}
         gapPt={e.bulletSpacingPt}
