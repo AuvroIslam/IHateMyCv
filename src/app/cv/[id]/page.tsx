@@ -175,9 +175,10 @@ export default function CvPage() {
           />
         </div>
 
-        {/* Stays in view while the preview scrolls, so chat edits are seen as they land. */}
-        <div className="no-print min-w-0 lg:sticky lg:top-20 lg:self-start">
-          <div className="flex gap-1 border-b border-line">
+        {/* Stays in view while the preview scrolls, so chat edits are seen as they land;
+            taller than the screen (a long Edit list), it scrolls on its own. */}
+        <div className="no-print min-w-0 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-y-auto lg:overscroll-contain lg:pr-1">
+          <div className="flex gap-1 border-b border-line lg:sticky lg:top-0 lg:z-10 lg:bg-background">
             {(['chat', 'content', 'report'] as const).map((key) => (
               <button
                 key={key}
@@ -194,7 +195,9 @@ export default function CvPage() {
             ))}
           </div>
 
-          <div className="mt-4">
+          {/* Capped to the viewport so a long Edit/Job match tab scrolls inside the sticky panel
+              instead of running off the bottom of the screen. */}
+          <div className="mt-4 lg:max-h-[calc(100vh-10rem)] lg:overflow-y-auto lg:pr-1">
             {tab === 'chat' ? (
               <CvChat
                 cvId={id}
