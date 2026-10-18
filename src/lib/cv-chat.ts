@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { COLOR, styledDesign } from '@/lib/cv-style';
+import { COLOR, DESIGN_PROPS, DESIGN_PROP_KEYS, type DesignProp, describeProp, styledDesign, validProp } from '@/lib/cv-style';
+import { FONT_KEYS } from '@/lib/fonts';
 import type {
   CareerLibrary,
   ChatTurn,
@@ -90,6 +91,13 @@ export function viewDoc(data: CvDocumentData, design: DesignSpec, library: Caree
     const set = Object.entries(sc ?? {}).map(([k, v]) => `${k} ${v}`);
     if (set.length) out.push(`  section ${id}: ${set.join(', ')}`);
   }
+  out.push("DESIGN (set_design changes these for this CV only; current values)");
+  const current = (prop: DesignProp): string | number => {
+    if (prop === 'margins') return `${look.page.marginTop}/${look.page.marginRight}/${look.page.marginBottom}/${look.page.marginLeft}`;
+    const [group, key] = prop.split('.') as [keyof DesignSpec, string];
+    return (look[group] as unknown as Record<string, string | number>)[key];
+  };
+  out.push(`  ${DESIGN_PROP_KEYS.map((k) => `${k}=${current(k)}`).join(', ')}`);
 
   const spare = (library?.entries ?? []).filter((x) => !x.archived && !onCv.has(x.id));
   if (spare.length) {
@@ -155,6 +163,16 @@ export const EDIT_TOOLS = {
       target: z.enum(['name', 'headings', 'titles', 'text', 'links', 'rules', 'accent']),
       section: z.string().optional(),
       color: z.string(),
+    }),
+  },
+  set_design: {
+    description: `Change the design of this CV only; other CVs keep theirs. property is one of the DESIGN properties in the view. value: a number for sizes and spacing (pt; mm for margins, which sets all four), one of the allowed options otherwise (weights 400 or 700), or "default" to undo an earlier change. Allowed options: ${DESIGN_PROP_KEYS.flatMap((k) => {
+      const d = DESIGN_PROPS[k];
+      return d.kind === 'choice' ? [`${k}: ${d.options.join(' | ')}`] : d.kind === 'number' ? [`${k}: ${d.min}-${d.max}${d.unit}`] : [];
+    }).join('; ')}. Fonts: ${FONT_KEYS.join(', ')}.`,
+    schema: z.object({
+      property: z.enum(DESIGN_PROP_KEYS),
+      value: z.union([z.string(), z.number()]),
     }),
   },
 } as const;
@@ -417,13 +435,33 @@ export function applyEdit(
         change: reset ? `Reset the colour of ${what}` : `Coloured ${what} ${value}`,
       };
     }
+
+    case 'set_design': {
+      const { property, value } = args as { property: DesignProp; value: string | number };
+      const label = DESIGN_PROPS[property].label;
+      const reset = String(value).trim().toLowerCase() === 'default';
+      const next = reset ? null : validProp(property, value);
+      if (!reset && next === null) return { ok: false, message: `${String(value)} is not allowed for ${property}; see the tool's options.` };
+      const style: CvStyle = structuredClone(data.style ?? {});
+      const props = { ...(style.design ?? {}) };
+      if (reset) delete props[property];
+      else props[property] = next!;
+      if (Object.keys(props).length) style.design = props;
+      else delete style.design;
+      if (JSON.stringify(style) === JSON.stringify(data.style ?? {})) return { ok: true, message: 'Already set that way; nothing changed.' };
+      if (Object.keys(style).length) data.style = style;
+      else delete data.style;
+      return reset
+        ? { ok: true, message: `${label} back to the original.`, change: `Put the ${label} back to the original` }
+        : { ok: true, message: `${label} now ${next}.`, change: `Set the ${label} to ${describeProp(property, next!)}` };
+    }
   }
 }
 
 // ---------------------------------------------------------------------------
 // Prompt
 
-export const CHAT_SYSTEM = `You edit one CV for its owner, in conversation. They ask for changes ("make the summary target this role", "cut the oldest internship", "add a bullet about my React Native work", "fit it on one page") and you make them with the edit tools. You can also recolour this CV with set_style ("make the project names blue", "darker headings"); colours apply to this CV only. Layout, fonts, sizes and spacing are fixed: if asked to change those, say so and offer what you can do.
+export const CHAT_SYSTEM = `You edit one CV for its owner, in conversation. They ask for changes ("make the summary target this role", "cut the oldest internship", "add a bullet about my React Native work", "fit it on one page") and you make them with the edit tools. You can also change this CV's look: colours with set_style ("make the project names blue"), and fonts, sizes, weights, heading style, alignment, spacing, bullets and margins with set_design. Look changes apply to this CV only, and the user can undo any reply. Anything outside those tools (moving sections into columns, adding photos or icons) you cannot do: say so and offer what you can.
 
 ## Truth
 
@@ -438,6 +476,7 @@ export const CHAT_SYSTEM = `You edit one CV for its owner, in conversation. They
 - Make every edit the request needs, then stop. Do not touch what the user did not ask about.
 - Length matters: the page count is given. When asked to fit a page, shorten or drop the least relevant material; when adding, mention if the CV may now run longer.
 - Prefer bringing back a Career Library entry (add_library_entry) over writing a new one when it covers the request.
+- Design: the DESIGN part of the view shows current values; change by sensible steps (a size by 1-2pt) unless told an exact value, and mention when a change may push the CV onto another page.
 - Colours: the STYLE part of the view shows the current ones. Use hex values; pick a shade that reads well on white (for "blue", something like #1d4ed8). "Project names" or "job titles" are entry titles: colour them for their section only, unless asked for every section.
 
 ## Replying

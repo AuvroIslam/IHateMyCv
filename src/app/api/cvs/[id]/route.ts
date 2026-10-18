@@ -25,7 +25,7 @@ export async function PUT(request: Request, context: RouteContext<'/api/cvs/[id]
       if (body.data) cv.data = body.data;
       if (typeof body.name === 'string' && body.name.trim()) cv.name = body.name.trim();
       // The latest 60 messages: plenty to scroll back through, bounded in size.
-      if (Array.isArray(body.chat)) cv.chat = body.chat.slice(-60);
+      if (Array.isArray(body.chat)) cv.chat = keepRewindPoints(body.chat.slice(-60));
       cv.updatedAt = new Date().toISOString();
       return cv;
     });
@@ -50,4 +50,23 @@ export async function DELETE(_request: Request, context: RouteContext<'/api/cvs/
   } catch (err) {
     return handleRouteError(err);
   }
+}
+
+/** Rewind points kept per CV: each is a whole copy of the CV, and the CV must stay a small document. */
+const REWIND_POINTS = 12;
+
+/** Drops the CV copies from all but the latest messages. */
+function keepRewindPoints(chat: ChatTurn[]): ChatTurn[] {
+  let kept = 0;
+  return chat
+    .slice()
+    .reverse()
+    .map((t) => {
+      if (!t.before) return t;
+      if (kept++ < REWIND_POINTS) return t;
+      const rest = { ...t };
+      delete rest.before;
+      return rest;
+    })
+    .reverse();
 }

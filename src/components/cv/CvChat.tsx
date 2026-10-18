@@ -20,7 +20,9 @@ const STARTERS = [
 
 /**
  * Chat that edits the CV. Each reply streams in while its edits land on the
- * preview one by one; the latest reply's edits can be undone in one click.
+ * preview one by one. Any message can be rewound, as in Claude Code: the CV
+ * goes back to how it was before that message, the conversation from there
+ * on is dropped, and the message returns to the input to send again.
  */
 export default function CvChat({
   cvId,
@@ -38,15 +40,13 @@ export default function CvChat({
   hasJob: boolean;
   /** Every edit as it lands, for the live preview. */
   onLiveData: (data: CvDocumentData) => void;
-  /** A finished turn (or an undo): the CV and conversation to save. */
+  /** A finished turn (or a rewind): the CV and conversation to save. */
   onTurnComplete: (data: CvDocumentData, history: ChatTurn[]) => void;
 }) {
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [streaming, setStreaming] = useState<{ text: string; changes: string[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // The CV before the latest reply's edits, while that reply can be undone.
-  const [undo, setUndo] = useState<{ index: number; before: CvDocumentData } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -60,7 +60,7 @@ export default function CvChat({
     const message = text.trim();
     if (!message || busy) return;
     const before = data;
-    const asked: ChatTurn[] = [...history, { role: 'user', text: message }];
+    const asked: ChatTurn[] = [...history, { role: 'user', text: message, before }];
     setInput('');
     setError(null);
     setBusy(true);
@@ -76,7 +76,8 @@ export default function CvChat({
     try {
       await api.chatCv(
         cvId,
-        { message, data: before, history, pages },
+        // Rewind copies are for this browser; the model needs only the words.
+        { message, data: before, history: history.map((t) => ({ role: t.role, text: t.text, changes: t.changes })), pages },
         (event) => {
           if (event.type === 'text') {
             reply += event.delta;
@@ -111,7 +112,6 @@ export default function CvChat({
       ...(changes.length ? { changes } : {}),
     };
     const next = [...asked, answer];
-    setUndo(changes.length ? { index: next.length - 1, before } : null);
     setStreaming(null);
     setBusy(false);
     abortRef.current = null;
@@ -119,11 +119,13 @@ export default function CvChat({
     onTurnComplete(latest, next);
   };
 
-  const revert = () => {
-    if (!undo) return;
-    const next = history.map((t, i) => (i === undo.index ? { ...t, text: `${t.text}\n\n(Undone.)`, changes: undefined } : t));
-    onTurnComplete(undo.before, next);
-    setUndo(null);
+  /** Back to just before message i: its CV, the conversation before it, and the message in the input. */
+  const rewind = (i: number) => {
+    const turn = history[i];
+    if (busy || turn?.role !== 'user' || !turn.before) return;
+    onTurnComplete(turn.before, history.slice(0, i));
+    setInput(turn.text);
+    setError(null);
   };
 
   const starters = hasJob ? STARTERS_FOR_JOB : STARTERS;
@@ -153,18 +155,27 @@ export default function CvChat({
 
         {history.map((turn, i) =>
           turn.role === 'user' ? (
-            <div key={i} className="flex justify-end">
+            <div key={i} className="group flex flex-col items-end">
               <p className="max-w-[85%] rounded-lg bg-foreground px-3 py-2 text-sm whitespace-pre-wrap text-background">
                 {turn.text}
               </p>
+              {turn.before && !busy && (
+                <button
+                  onClick={() => rewind(i)}
+                  title="Put the CV back as it was before this message, and drop the chat from here"
+                  className="mt-1 text-xs text-subtle opacity-70 transition-opacity group-hover:opacity-100 hover:text-foreground"
+                >
+                  ↺ Rewind to here
+                </button>
+              )}
             </div>
           ) : (
             <AssistantTurn key={i} text={turn.text} changes={turn.changes}>
-              {undo?.index === i && !busy && (
-                <Button size="sm" onClick={revert} className="mt-2">
+              {i === history.length - 1 && turn.changes?.length && history[i - 1]?.before && !busy ? (
+                <Button size="sm" onClick={() => rewind(i - 1)} className="mt-2">
                   Undo these changes
                 </Button>
-              )}
+              ) : null}
             </AssistantTurn>
           ),
         )}

@@ -1,7 +1,7 @@
 'use client';
 
 import { type CSSProperties, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { blockLook, hasStyle, styleCss, styledDesign } from '@/lib/cv-style';
+import { blockLook, freeLines, hasStyle, styleCss, styledDesign } from '@/lib/cv-style';
 import { embeddedFontCss } from '@/lib/embedded-fonts';
 import { fontStylesheets } from '@/lib/fonts';
 import type { CvDocumentData, DesignSpec } from '@/types/cv';
@@ -81,7 +81,7 @@ interface PageSet {
  */
 export default function CvPreview({
   design: baseDesign,
-  data,
+  data: givenData,
   className,
   targetPages,
   overlay,
@@ -111,7 +111,8 @@ export default function CvPreview({
   const [scale, setScale] = useState(1);
   const [pages, setPages] = useState<PageSet[] | null>(null);
   const scope = useId();
-  // The CV's own colours over the shared design (see cv-style.ts).
+  // The CV's own look over the shared design (see cv-style.ts).
+  const data = useMemo(() => freeLines(givenData), [givenData]);
   const design = useMemo(() => styledDesign(baseDesign, data.style), [baseDesign, data.style]);
 
   const replicaSource = replica?.source ?? null;

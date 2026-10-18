@@ -569,7 +569,7 @@ export interface CvDocumentData {
 /** A CSS colour: #rgb / #rrggbb, or a plain colour name. */
 export type CssColor = string;
 
-/** Colours one CV sets for itself; anything unset keeps the design's. */
+/** The look one CV sets for itself; anything unset keeps the shared design's. */
 export interface CvStyle {
   colors?: {
     name?: CssColor;
@@ -583,6 +583,8 @@ export interface CvStyle {
   };
   /** Per section, by section id. */
   sections?: Record<string, { headings?: CssColor; titles?: CssColor; text?: CssColor }>;
+  /** Design properties set for this CV, by path (see DESIGN_PROPS in cv-style.ts). */
+  design?: Record<string, string | number>;
 }
 
 // ---------------------------------------------------------------------------
@@ -613,6 +615,11 @@ export interface ChatTurn {
   text: string;
   /** What the assistant changed, one line per edit. */
   changes?: string[];
+  /**
+   * On a user message: the CV just before it was sent, so the chat can rewind
+   * to that point. Kept on the latest few messages only (see REWIND_POINTS).
+   */
+  before?: CvDocumentData;
 }
 
 export interface SavedCv {
