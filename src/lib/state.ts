@@ -20,6 +20,7 @@ export async function getAppState(): Promise<AppStateResponse> {
     store.library && store.design ? buildBaseDocument(store.library, store.design) : null;
   return {
     library: store.library,
+    profile: store.profile ?? null,
     design: store.design,
     source: store.source,
     hasApiKey: hasApiKey(),

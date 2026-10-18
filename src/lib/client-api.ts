@@ -1,6 +1,7 @@
 'use client';
 
 import type {
+  Profile,
   AppStateResponse,
   CareerLibrary,
   ChatTurn,
@@ -47,6 +48,9 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(body),
     }),
+
+  saveProfile: (profile: Profile) =>
+    call<{ profile: Profile }>('/api/profile', { method: 'PUT', body: JSON.stringify({ profile }) }),
 
   importNotes: (body: { notes: string; sectionId: string }) =>
     call<{ entries: LibraryEntry[]; skills: { category: string; skills: string[] }[] }>(

@@ -647,9 +647,27 @@ export interface SourceMeta {
   backgrounds?: number;
 }
 
+/** The kinds of item a Profile holds, each matched to CV sections of the same type. */
+export type ProfileKind = 'projects' | 'experience' | 'achievements';
+
+/**
+ * General information about the owner, kept apart from any CV: not shaped by
+ * the uploaded CV's sections or titles, and never printed directly. Tailoring
+ * and the chat draw on it alongside the Career Library.
+ */
+export interface Profile {
+  personal: PersonalInfo;
+  /** Everything else true about them (languages, certifications, interests, goals), in their own words. */
+  about: string;
+  /** Projects, jobs and achievements; each entry's sectionId is its ProfileKind. */
+  entries: LibraryEntry[];
+}
+
 export interface Store {
   version: number;
   library: CareerLibrary | null;
+  /** Absent until the owner first saves their profile. */
+  profile?: Profile | null;
   design: DesignSpec | null;
   source: SourceMeta | null;
   /** The original CV's content exactly as extracted, for side-by-side checks. */
@@ -674,6 +692,7 @@ export interface CvSummary {
 /** Everything the app shell needs to render. */
 export interface AppStateResponse {
   library: CareerLibrary | null;
+  profile: Profile | null;
   design: DesignSpec | null;
   source: SourceMeta | null;
   hasApiKey: boolean;

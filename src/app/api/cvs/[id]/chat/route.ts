@@ -2,6 +2,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { assertBudget, claudeClient, modelFor, provider, recordClaudeUsage } from '@/lib/ai';
 import { handleRouteError, jsonError } from '@/lib/api';
 import { CHAT_SYSTEM, applyEdit, toolDefinitions, turnPrompt, viewDoc, type ChatTurn } from '@/lib/cv-chat';
+import { withProfile } from '@/lib/profile';
 import { readStore } from '@/lib/store';
 import type { CvDocumentData } from '@/types/cv';
 import { consume } from '@/lib/limits';
@@ -43,7 +44,10 @@ export async function POST(request: Request, context: RouteContext<'/api/cvs/[id
     await consume('chat');
 
     const design = store.design;
-    const library = store.library;
+    // The Profile's items join the library as entries the chat can bring in.
+    const { library, facts } = store.library
+      ? withProfile(store.library, design, store.profile)
+      : { library: null, facts: '' };
     const working: CvDocumentData = structuredClone(body.data ?? cv.data);
     const model = modelFor('cv_chat');
     const client = claudeClient();
@@ -66,7 +70,7 @@ export async function POST(request: Request, context: RouteContext<'/api/cvs/[id
         const changes: string[] = [];
         let reply = '';
         try {
-          let view = viewDoc(working, design, library);
+          let view = viewDoc(working, design, library, facts);
           const messages: Anthropic.MessageParam[] = [
             ...history,
             { role: 'user', content: turnPrompt(view, message, body.pages ?? {}, cv.jobDescription) },
@@ -109,7 +113,7 @@ export async function POST(request: Request, context: RouteContext<'/api/cvs/[id
             if (final.stop_reason !== 'tool_use' || !results.length) break;
             // Results go back so the model can fix a bad reference or write
             // its reply. A fresh view gives it references for the new state.
-            view = viewDoc(working, design, library);
+            view = viewDoc(working, design, library, facts);
             messages.push({ role: 'assistant', content: final.content });
             messages.push({
               role: 'user',

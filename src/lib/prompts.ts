@@ -163,6 +163,8 @@ export function tailorUserPrompt(
   library: CareerLibrary,
   design: DesignSpec,
   jobDescription: string,
+  /** True facts from the owner's Profile that are not entries (see withProfile). */
+  facts = '',
 ): string {
   const counts = design.sections
     .map((s) => {
@@ -206,10 +208,14 @@ export function tailorUserPrompt(
     1,
   );
 
+  const about = facts.trim()
+    ? `\n## More about the candidate, from their Profile\n\nTrue facts that are not entries: use them for the headline and to judge which keywords the candidate really covers. Never present them as entries.\n\n\`\`\`\n${facts.trim()}\n\`\`\`\n`
+    : '';
+
   return `## Sections on this CV (fixed order, do not change)
 
 ${counts}
-
+${about}
 ## Career Library
 
 \`\`\`json

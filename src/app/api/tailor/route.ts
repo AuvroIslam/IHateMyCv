@@ -4,6 +4,7 @@ import { applyTailorPlan } from '@/lib/assemble';
 import { newId } from '@/lib/id';
 import { TAILOR_SYSTEM, tailorUserPrompt } from '@/lib/prompts';
 import { tailorSchema } from '@/lib/schemas';
+import { withProfile } from '@/lib/profile';
 import { mutateStore, readStore } from '@/lib/store';
 import type { SavedCv } from '@/types/cv';
 import { consume } from '@/lib/limits';
@@ -26,9 +27,11 @@ export async function POST(request: Request) {
     }
     await consume('tailor');
 
+    // The Profile's projects, jobs and achievements are candidates too.
+    const { library, facts } = withProfile(store.library, store.design, store.profile);
     const plan = await generateStructured({
       system: TAILOR_SYSTEM,
-      user: tailorUserPrompt(store.library, store.design, jd),
+      user: tailorUserPrompt(library, store.design, jd, facts),
       schema: tailorSchema,
       name: 'tailoring_plan',
       // Medium: on Claude Sonnet it ranks as well as Opus did (6 jobs across
@@ -36,7 +39,7 @@ export async function POST(request: Request) {
       effort: 'medium',
     });
 
-    const { data, report } = applyTailorPlan(store.library, store.design, plan);
+    const { data, report } = applyTailorPlan(library, store.design, plan);
     const now = new Date().toISOString();
 
     const cv: SavedCv = {

@@ -8,6 +8,7 @@ import { cx } from './ui/kit';
 
 const LINKS = [
   { href: '/', label: 'Home' },
+  { href: '/profile', label: 'Profile' },
   { href: '/library', label: 'Career Library' },
   { href: '/design', label: 'Design' },
   { href: '/tailor', label: 'Tailor' },

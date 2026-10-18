@@ -38,7 +38,13 @@ const sectionType = (s: RenderedSection, design: DesignSpec) =>
   design.sections.find((d) => d.id === s.sectionId)?.type ?? 'extra';
 
 /** The CV as the model reads it, with a reference for everything it can edit. */
-export function viewDoc(data: CvDocumentData, design: DesignSpec, library: CareerLibrary | null): DocView {
+export function viewDoc(
+  data: CvDocumentData,
+  design: DesignSpec,
+  library: CareerLibrary | null,
+  /** True facts from the owner's Profile that are not entries (see withProfile). */
+  facts = '',
+): DocView {
   const refs = new Map<string, Target>();
   const out: string[] = [];
   const p = data.personal;
@@ -99,10 +105,16 @@ export function viewDoc(data: CvDocumentData, design: DesignSpec, library: Caree
   };
   out.push(`  ${DESIGN_PROP_KEYS.map((k) => `${k}=${current(k)}`).join(', ')}`);
 
+  if (facts.trim()) {
+    out.push('');
+    out.push("MORE ABOUT THE OWNER (true facts from their Profile; use them when asked, e.g. to add languages or rewrite the summary):");
+    out.push(facts.trim().split('\n').map((l) => `  ${l}`).join('\n'));
+  }
+
   const spare = (library?.entries ?? []).filter((x) => !x.archived && !onCv.has(x.id));
   if (spare.length) {
     out.push('');
-    out.push('CAREER LIBRARY ENTRIES NOT ON THIS CV (add_library_entry brings one back, with its own bullets):');
+    out.push('CAREER LIBRARY AND PROFILE ENTRIES NOT ON THIS CV (add_library_entry brings one in, with its own bullets):');
     for (const x of spare) {
       const first = x.bullets[0]?.text;
       out.push(
