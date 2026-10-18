@@ -134,8 +134,8 @@ export default function CvChat({
         {history.length === 0 && !streaming && (
           <div className="pt-2 text-sm">
             <p className="text-subtle">
-              Ask for changes in plain words and watch them appear on the CV. Your design stays as it is, and
-              nothing is made up: rewrites keep your facts, and anything new comes from you.
+              Ask for changes in plain words and watch them appear on the CV: rewrites, cuts, new bullets, or
+              colours for this CV. Nothing is made up: rewrites keep your facts, and anything new comes from you.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               {starters.map((s) => (

@@ -1,6 +1,7 @@
 'use client';
 
-import { type CSSProperties, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { blockLook, hasStyle, styleCss, styledDesign } from '@/lib/cv-style';
 import { embeddedFontCss } from '@/lib/embedded-fonts';
 import { fontStylesheets } from '@/lib/fonts';
 import type { CvDocumentData, DesignSpec } from '@/types/cv';
@@ -79,7 +80,7 @@ interface PageSet {
  * depends on. The same page elements are what gets printed.
  */
 export default function CvPreview({
-  design,
+  design: baseDesign,
   data,
   className,
   targetPages,
@@ -109,10 +110,18 @@ export default function CvPreview({
   const sideRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   const [pages, setPages] = useState<PageSet[] | null>(null);
+  const scope = useId();
+  // The CV's own colours over the shared design (see cv-style.ts).
+  const design = useMemo(() => styledDesign(baseDesign, data.style), [baseDesign, data.style]);
 
+  const replicaSource = replica?.source ?? null;
+  const replicaOriginal = replica?.original ?? null;
   const exact = useMemo(
-    () => (replica?.source && replica.original && sameContent(data, replica.original) ? replica.source : null),
-    [replica?.source, replica?.original, data],
+    () =>
+      replicaSource && replicaOriginal && !hasStyle(data.style) && sameContent(data, replicaOriginal)
+        ? replicaSource
+        : null,
+    [replicaSource, replicaOriginal, data],
   );
   const exactRef = useRef(exact);
   useEffect(() => {
@@ -130,11 +139,12 @@ export default function CvPreview({
   // Unchanged blocks of an edited CV, redrawn from the original. Single-column
   // only: a column band of the PDF would also hold the other column's text.
   const bands = useMemo(() => {
-    const source = replica?.source;
-    const original = replica?.original;
-    if (exact || !source || !original || isTwoColumn(design, original)) return null;
-    const originals = buildBlocks(design, original);
-    const found = mapBands(source, originals);
+    const source = replicaSource;
+    const original = replicaOriginal;
+    if (exact || !source || !original || isTwoColumn(baseDesign, original)) return null;
+    // As the original printed: the shared design, no colours of this CV's own.
+    const originals = buildBlocks(baseDesign, original);
+    const found = mapBands(source, originals, baseDesign.sectionHeading.style);
     const bySig = new Map<string, NonNullable<(typeof found)[number]>>();
     // An absorbed block is drawn by the one it follows, so it counts only if that one is drawn.
     found.forEach((band, i) => {
@@ -142,14 +152,15 @@ export default function CvPreview({
     });
     originals.forEach((b, i) => {
       const band = found[i];
-      if (band) bySig.set(JSON.stringify(b.content), band);
+      if (band) bySig.set(JSON.stringify(b.content) + blockLook(baseDesign, undefined, b), band);
     });
     return { source, bySig, hrefs: replicaLinks(source, original) };
-  }, [exact, replica?.source, replica?.original, design]);
+  }, [exact, replicaSource, replicaOriginal, baseDesign]);
   const blocks = useMemo(() => {
     const built = buildBlocks(design, data);
     if (!bands || twoCol) return built;
-    const found = built.map((b) => bands.bySig.get(JSON.stringify(b.content)));
+    // A block matches only if it says and looks as it did: recoloured blocks are rebuilt.
+    const found = built.map((b) => bands.bySig.get(JSON.stringify(b.content) + blockLook(design, data.style, b)));
     return built.map((b, i) => {
       const band = found[i];
       if (!band) return b;
@@ -163,13 +174,13 @@ export default function CvPreview({
           <ReplicaBlock
             source={bands.source}
             band={band}
-            design={design}
+            design={baseDesign}
             hrefs={bands.hrefs}
           />
         ),
       };
     });
-  }, [design, data, bands, twoCol]);
+  }, [design, baseDesign, data, bands, twoCol]);
   const widths = columnWidthsMm(design);
   const indexOf = useMemo(() => {
     const by = { full: [] as number[], main: [] as number[], side: [] as number[] };
@@ -279,13 +290,13 @@ export default function CvPreview({
   const stackHeight = pageCount * pageHeightPx + (pageCount - 1) * PAGE_GAP_PX;
 
   const block = (i: number) => (
-    <div key={blocks[i].key} className="cv-block" data-block={blocks[i].key}>
+    <div key={blocks[i].key} className="cv-block" data-block={blocks[i].key} data-section={blocks[i].section}>
       {blocks[i].node}
     </div>
   );
   const measureBlocks = (indices: number[]) =>
     indices.map((i) => (
-      <div key={blocks[i].key} className="cv-block">
+      <div key={blocks[i].key} className="cv-block" data-section={blocks[i].section}>
         {blocks[i].node}
       </div>
     ));
@@ -310,13 +321,13 @@ export default function CvPreview({
   );
 
   return (
-    <div className={className}>
+    <div className={className} data-cv-root={scope.replace(/[^\w-]/g, '')}>
       {stylesheets.map((href) => (
         <link key={href} rel="stylesheet" href={href} />
       ))}
       <style>{`${exact ? '' : `@page { size: ${design.page.size === 'letter' ? 'Letter' : 'A4'}; margin: 0; }\n`}${embeddedFontCss(design)}${
         bands ? `\n${replicaFontCss(bands.source)}` : ''
-      }`}</style>
+      }\n${styleCss(data.style, scope)}`}</style>
 
       {/* Off-screen but laid out, even while printing, so measurements never collapse to zero mid-print. */}
       <div className="cv-measure" aria-hidden>

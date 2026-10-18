@@ -1,8 +1,10 @@
 import { z } from 'zod';
+import { COLOR, styledDesign } from '@/lib/cv-style';
 import type {
   CareerLibrary,
   ChatTurn,
   CvDocumentData,
+  CvStyle,
   DesignSpec,
   RenderedEntry,
   RenderedSection,
@@ -77,6 +79,18 @@ export function viewDoc(data: CvDocumentData, design: DesignSpec, library: Caree
     }
   }
 
+  const look = styledDesign(design, data.style);
+  const c = data.style?.colors;
+  out.push('');
+  out.push("STYLE (this CV's colours; set_style changes them for this CV only)");
+  out.push(
+    `  name ${look.header.nameColor}, headings ${look.sectionHeading.color}, titles ${c?.titles ?? `(as text)`}, text ${look.color.text}, links ${look.color.link}, rules ${look.color.rule}, accent ${look.color.accent}`,
+  );
+  for (const [id, sc] of Object.entries(data.style?.sections ?? {})) {
+    const set = Object.entries(sc ?? {}).map(([k, v]) => `${k} ${v}`);
+    if (set.length) out.push(`  section ${id}: ${set.join(', ')}`);
+  }
+
   const spare = (library?.entries ?? []).filter((x) => !x.archived && !onCv.has(x.id));
   if (spare.length) {
     out.push('');
@@ -134,9 +148,28 @@ export const EDIT_TOOLS = {
       position,
     }),
   },
+  set_style: {
+    description:
+      'Change a colour on this CV only; other CVs keep theirs. target: name, headings (section headings), titles (entry titles like a project or job name), text (body text), links, rules (divider lines), accent. section: a section id to colour only that section - headings, titles and text only; omit for the whole CV. color: a hex colour such as "#1d4ed8" (plain names like "navy" also work), or "default" to undo an earlier colour change.',
+    schema: z.object({
+      target: z.enum(['name', 'headings', 'titles', 'text', 'links', 'rules', 'accent']),
+      section: z.string().optional(),
+      color: z.string(),
+    }),
+  },
 } as const;
 
 export type EditName = keyof typeof EDIT_TOOLS;
+
+const STYLE_LABEL = {
+  name: 'name',
+  headings: 'section headings',
+  titles: 'entry titles',
+  text: 'text',
+  links: 'links',
+  rules: 'divider lines',
+  accent: 'accent colour',
+} as const;
 
 /** Tool definitions in the shape the Messages API takes. */
 export function toolDefinitions() {
@@ -346,13 +379,51 @@ export function applyEdit(
       place(s.entries, entry, a.position);
       return { ok: true, message: 'Entry added.', change: `Added ${label(entry)}` };
     }
+
+    case 'set_style': {
+      const { target, section, color } = args as { target: keyof typeof STYLE_LABEL; section?: string; color: string };
+      const value = color.trim().toLowerCase();
+      const reset = value === 'default';
+      if (!reset && !COLOR.test(value)) return { ok: false, message: `"${color}" is not a colour: give a hex value like #1d4ed8.` };
+      const style: CvStyle = structuredClone(data.style ?? {});
+      let where = 'the whole CV';
+      if (section) {
+        const s = data.sections.find((x) => x.sectionId === section && !x.hidden);
+        if (!s) return { ok: false, message: `No section ${section} on this CV.` };
+        if (target !== 'headings' && target !== 'titles' && target !== 'text') {
+          return { ok: false, message: 'Only headings, titles and text can be coloured per section; omit section for the rest.' };
+        }
+        const own = { ...(style.sections?.[section] ?? {}) };
+        if (reset) delete own[target];
+        else own[target] = value;
+        style.sections = { ...(style.sections ?? {}), [section]: own };
+        if (!Object.keys(own).length) delete style.sections[section];
+        where = `"${sectionTitle(s, design)}"`;
+      } else {
+        const colors = { ...(style.colors ?? {}) };
+        if (reset) delete colors[target];
+        else colors[target] = value;
+        style.colors = colors;
+      }
+      if (style.colors && !Object.keys(style.colors).length) delete style.colors;
+      if (style.sections && !Object.keys(style.sections).length) delete style.sections;
+      if (JSON.stringify(style) === JSON.stringify(data.style ?? {})) return { ok: true, message: 'Already that colour; nothing changed.' };
+      if (Object.keys(style).length) data.style = style;
+      else delete data.style;
+      const what = section ? `${where} ${STYLE_LABEL[target]}` : `the ${STYLE_LABEL[target]}`;
+      return {
+        ok: true,
+        message: reset ? `${what} back to the design's colour.` : `${what} now ${value}.`,
+        change: reset ? `Reset the colour of ${what}` : `Coloured ${what} ${value}`,
+      };
+    }
   }
 }
 
 // ---------------------------------------------------------------------------
 // Prompt
 
-export const CHAT_SYSTEM = `You edit one CV for its owner, in conversation. They ask for changes ("make the summary target this role", "cut the oldest internship", "add a bullet about my React Native work", "fit it on one page") and you make them with the edit tools. The page's design is fixed; you change only content.
+export const CHAT_SYSTEM = `You edit one CV for its owner, in conversation. They ask for changes ("make the summary target this role", "cut the oldest internship", "add a bullet about my React Native work", "fit it on one page") and you make them with the edit tools. You can also recolour this CV with set_style ("make the project names blue", "darker headings"); colours apply to this CV only. Layout, fonts, sizes and spacing are fixed: if asked to change those, say so and offer what you can do.
 
 ## Truth
 
@@ -367,6 +438,7 @@ export const CHAT_SYSTEM = `You edit one CV for its owner, in conversation. They
 - Make every edit the request needs, then stop. Do not touch what the user did not ask about.
 - Length matters: the page count is given. When asked to fit a page, shorten or drop the least relevant material; when adding, mention if the CV may now run longer.
 - Prefer bringing back a Career Library entry (add_library_entry) over writing a new one when it covers the request.
+- Colours: the STYLE part of the view shows the current ones. Use hex values; pick a shade that reads well on white (for "blue", something like #1d4ed8). "Project names" or "job titles" are entry titles: colour them for their section only, unless asked for every section.
 
 ## Replying
 

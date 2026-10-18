@@ -124,6 +124,8 @@ export interface Block {
    * left untouched straight from the original PDF.
    */
   content: unknown[];
+  /** The section it belongs to; none for the header. */
+  section?: string;
 }
 
 /** A two-column CV with something actually in its side column. */
@@ -160,8 +162,13 @@ export function buildBlocks(design: DesignSpec, data: CvDocumentData): Block[] {
   // gutter holds only what entries hang into it.
   const gutter = !twoCol && design.layout.gutterPt ? design.layout.gutterPt : 0;
   for (const { def, section, column } of sections) {
-    const push = (b: Omit<Block, 'column'>) =>
-      blocks.push({ ...b, column, node: gutter ? <div style={{ paddingLeft: pt(gutter) }}>{b.node}</div> : b.node });
+    const push = (b: Omit<Block, 'column' | 'section'>) =>
+      blocks.push({
+        ...b,
+        column,
+        section: def.id,
+        node: gutter ? <div style={{ paddingLeft: pt(gutter) }}>{b.node}</div> : b.node,
+      });
     push({
       key: `${def.id}:heading`,
       content: [section.title ?? def.title],
@@ -935,12 +942,17 @@ function Entry({
     paddingLeft: pt(8),
   };
 
-  const titleNode = entry.link ? (
-    <a href={entry.link} style={{ color: 'inherit', textDecoration: 'none' }}>
-      {entry.title}
-    </a>
-  ) : (
-    entry.title
+  // Tagged for a CV's own title colour (see cv-style.ts).
+  const titleNode = (
+    <span data-role="entry-title">
+      {entry.link ? (
+        <a href={entry.link} style={{ color: 'inherit', textDecoration: 'none' }}>
+          {entry.title}
+        </a>
+      ) : (
+        entry.title
+      )}
+    </span>
   );
 
   const titleLinks =

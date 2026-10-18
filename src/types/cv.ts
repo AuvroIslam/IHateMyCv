@@ -562,6 +562,27 @@ export interface RenderedSection {
 export interface CvDocumentData {
   personal: PersonalInfo;
   sections: RenderedSection[];
+  /** This CV's own colours, over the shared design. Set from the chat. */
+  style?: CvStyle;
+}
+
+/** A CSS colour: #rgb / #rrggbb, or a plain colour name. */
+export type CssColor = string;
+
+/** Colours one CV sets for itself; anything unset keeps the design's. */
+export interface CvStyle {
+  colors?: {
+    name?: CssColor;
+    headings?: CssColor;
+    /** Entry titles ("Nongor", "Ostad – Teaching Assistant"). */
+    titles?: CssColor;
+    text?: CssColor;
+    links?: CssColor;
+    rules?: CssColor;
+    accent?: CssColor;
+  };
+  /** Per section, by section id. */
+  sections?: Record<string, { headings?: CssColor; titles?: CssColor; text?: CssColor }>;
 }
 
 // ---------------------------------------------------------------------------

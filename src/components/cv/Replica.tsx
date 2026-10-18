@@ -235,6 +235,13 @@ export interface Band {
   bottom: number;
   /** Where the next row begins: the gap below the block. */
   gapEnd: number;
+  /**
+   * What the block draws, gaps included: a rule in a gap belongs to the
+   * block it sits nearer, so a heading's rule is drawn with the heading and
+   * never twice when a neighbour is rebuilt.
+   */
+  drawTop: number;
+  drawBottom: number;
   /** The CV's first block, at the top of page 1: placed where it printed, measured from the top margin. */
   pinned: boolean;
 }
@@ -299,6 +306,8 @@ export const ABSORBED = 'absorbed';
 export function mapBands(
   source: ReplicaSource,
   blocks: { key: string; content: unknown[] }[],
+  /** The design's section heading style: says which side of a heading its rule belongs to. */
+  headingStyle?: DesignSpec['sectionHeading']['style'],
 ): (Band | typeof ABSORBED | null)[] {
   interface Row {
     page: number;
@@ -353,6 +362,26 @@ export function mapBands(
     if (coverage(r.words, bags[b]) >= 0.5) owned[lead[b]].push(r);
   }
 
+  // Where each gap is cut between the rows either side of it, for drawing:
+  // a rule goes with the heading the design draws it for (above or below the
+  // heading text), and otherwise with the row it sits nearer.
+  const ownerOf = new Map<Row, number>();
+  owned.forEach((rs, i) => rs.forEach((r) => ownerOf.set(r, i)));
+  const isHeading = (r: Row | undefined) => r !== undefined && blocks[ownerOf.get(r) ?? -1]?.key.endsWith(':heading');
+  const ruleAbove = headingStyle === 'rule-before';
+  const ruleBelow = headingStyle === 'rule-after' || headingStyle === 'underline';
+  const cutAfter = rows.map((r, i) => {
+    const next = rows[i + 1];
+    if (!next || next.page !== r.page) return r.bottom;
+    const rules = (source.layout.pages[r.page].rules ?? []).filter((x) => x.y > r.bottom && x.y < next.top);
+    if (!rules.length) return r.bottom;
+    const lowest = Math.max(...rules.map((x) => x.y + x.thickness / 2)) + 0.5;
+    if (ruleAbove && isHeading(next) && !isHeading(r)) return r.bottom;
+    if (ruleBelow && isHeading(r) && !isHeading(next)) return Math.min(lowest, next.top);
+    const upper = rules.filter((x) => x.y - r.bottom < next.top - x.y);
+    return upper.length ? Math.max(...upper.map((x) => x.y + x.thickness / 2)) + 0.5 : r.bottom;
+  });
+
   const opened = new Set<number>();
   const bands = blocks.map((_, i): Band | typeof ABSORBED | null => {
     if (lead[i] !== i) return ABSORBED;
@@ -366,6 +395,7 @@ export function mapBands(
     const after = pageRows[pageRows.indexOf(own[own.length - 1]) + 1];
     const first = Math.min(...own.map((r) => r.top));
     const bottom = Math.max(...own.map((r) => r.bottom));
+    const last = own[own.length - 1];
     if (!before) opened.add(i);
     return {
       page: own[0].page,
@@ -373,6 +403,8 @@ export function mapBands(
       textTop: first,
       bottom,
       gapEnd: after ? Math.max(bottom, after.top) : bottom,
+      drawTop: before ? Math.min(cutAfter[rows.indexOf(before)], first) : 0,
+      drawBottom: after ? Math.max(bottom, cutAfter[rows.indexOf(last)]) : bottom,
       pinned: !before && i === 0 && own[0].page === 0,
     };
   });
@@ -392,6 +424,9 @@ export function mapBands(
     const same = gaps.get(kind(blocks[i].key));
     const gap = same?.length ? median(same) : all.length ? median(all) : 0;
     band.top = Math.max(0, band.textTop - gap);
+    // Still draws any rule set above it on its page (a heading's rule).
+    const rules = (source.layout.pages[band.page].rules ?? []).filter((x) => x.y < band.textTop && band.textTop - x.y < 2 * gap + 6);
+    band.drawTop = Math.min(band.top, ...rules.map((x) => x.y - x.thickness / 2 - 0.5));
   }
   return bands;
 }
@@ -402,7 +437,8 @@ export function mapBands(
  * where they printed. The gaps above and below are margins, so they collapse
  * like the rebuild's own: two neighbouring bands of the original meet exactly
  * as they printed, and next to a rebuilt block the larger gap wins rather than
- * both. The drawing runs on into those margins, keeping any rule set in them.
+ * both. The drawing runs on into those margins as far as its own share of
+ * each gap (see Band.drawTop), keeping the rules that belong to it.
  */
 export function ReplicaBlock({
   source,
@@ -432,16 +468,16 @@ export function ReplicaBlock({
       <ReplicaSvg
         source={source}
         index={band.page}
-        top={band.top}
-        bottom={band.gapEnd}
+        top={band.drawTop}
+        bottom={band.drawBottom}
         hrefs={hrefs}
         fallback={fontStack(design.font.bodyFamily)}
         style={{
           position: 'absolute',
-          top: `${band.top - band.textTop}pt`,
+          top: `${band.drawTop - band.textTop}pt`,
           left: `-${design.page.marginLeft}mm`,
           width: `${page.width}pt`,
-          height: `${band.gapEnd - band.top}pt`,
+          height: `${band.drawBottom - band.drawTop}pt`,
         }}
       />
     </div>
