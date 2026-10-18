@@ -28,3 +28,5 @@ export const saveSourceFonts: typeof files.saveSourceFonts = (...a) => impl().sa
 export const readSourceFont = (id: string) => impl().readSourceFont(id);
 export const savePageImages: typeof files.savePageImages = (...a) => impl().savePageImages(...a);
 export const readPageImage = (page: number) => impl().readPageImage(page);
+export const savePageBackgrounds: typeof files.savePageBackgrounds = (...a) => impl().savePageBackgrounds(...a);
+export const readPageBackground = (page: number) => impl().readPageBackground(page);

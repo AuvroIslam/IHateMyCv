@@ -14,6 +14,16 @@ import {
   pageStyle,
   textStyle,
 } from './CvDocument';
+import {
+  ABSORBED,
+  ReplicaBlock,
+  ReplicaPage,
+  type ReplicaSource,
+  mapBands,
+  replicaFontCss,
+  replicaLinks,
+  sameContent,
+} from './Replica';
 
 const MM_TO_PX = 96 / 25.4;
 const PX_PER_PT = 96 / 72;
@@ -75,6 +85,7 @@ export default function CvPreview({
   targetPages,
   overlay,
   onPaginated,
+  replica,
 }: {
   design: DesignSpec;
   data: CvDocumentData;
@@ -85,6 +96,12 @@ export default function CvPreview({
   overlay?: { srcs: string[]; opacity: number };
   /** Fires once pages are laid out, so printing can wait for it. */
   onPaginated?: (pageCount: number) => void;
+  /**
+   * The original PDF, redrawn exactly: shown instead of the rebuild while the
+   * CV still says what the original said, and for each block an edit left
+   * alone (see Replica.tsx).
+   */
+  replica?: { source: ReplicaSource | null; original: CvDocumentData | null };
 }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const fullRef = useRef<HTMLDivElement>(null);
@@ -93,14 +110,66 @@ export default function CvPreview({
   const [scale, setScale] = useState(1);
   const [pages, setPages] = useState<PageSet[] | null>(null);
 
+  const exact = useMemo(
+    () => (replica?.source && replica.original && sameContent(data, replica.original) ? replica.source : null),
+    [replica?.source, replica?.original, data],
+  );
+  const exactRef = useRef(exact);
+  useEffect(() => {
+    exactRef.current = exact;
+  });
+
   const page = pageDimensions(design);
-  const sheetWidthPx = page.width * MM_TO_PX;
+  // The replica keeps the original's own page size, whatever the design says.
+  const sheetWidthPx = exact ? exact.layout.pages[0].width * PX_PER_PT : page.width * MM_TO_PX;
   const pageHeightPx = page.height * MM_TO_PX;
   const bodyHeightPx = contentHeightMm(design) * MM_TO_PX;
   const stylesheets = fontStylesheets(design.font.bodyFamily, design.font.headingFamily);
 
-  const blocks = useMemo(() => buildBlocks(design, data), [design, data]);
   const twoCol = isTwoColumn(design, data);
+  // Unchanged blocks of an edited CV, redrawn from the original. Single-column
+  // only: a column band of the PDF would also hold the other column's text.
+  const bands = useMemo(() => {
+    const source = replica?.source;
+    const original = replica?.original;
+    if (exact || !source || !original || isTwoColumn(design, original)) return null;
+    const originals = buildBlocks(design, original);
+    const found = mapBands(source, originals);
+    const bySig = new Map<string, NonNullable<(typeof found)[number]>>();
+    // An absorbed block is drawn by the one it follows, so it counts only if that one is drawn.
+    found.forEach((band, i) => {
+      if (band === ABSORBED && !found[i - 1]) found[i] = null;
+    });
+    originals.forEach((b, i) => {
+      const band = found[i];
+      if (band) bySig.set(JSON.stringify(b.content), band);
+    });
+    return { source, bySig, hrefs: replicaLinks(source, original) };
+  }, [exact, replica?.source, replica?.original, design]);
+  const blocks = useMemo(() => {
+    const built = buildBlocks(design, data);
+    if (!bands || twoCol) return built;
+    const found = built.map((b) => bands.bySig.get(JSON.stringify(b.content)));
+    return built.map((b, i) => {
+      const band = found[i];
+      if (!band) return b;
+      if (band === ABSORBED) {
+        // Only alongside the block that draws it; alone it is rebuilt.
+        return found[i - 1] ? { ...b, node: null } : b;
+      }
+      return {
+        ...b,
+        node: (
+          <ReplicaBlock
+            source={bands.source}
+            band={band}
+            design={design}
+            hrefs={bands.hrefs}
+          />
+        ),
+      };
+    });
+  }, [design, data, bands, twoCol]);
   const widths = columnWidthsMm(design);
   const indexOf = useMemo(() => {
     const by = { full: [] as number[], main: [] as number[], side: [] as number[] };
@@ -160,7 +229,7 @@ export default function CvPreview({
         side: sidePages[p] ?? [],
       }));
       setPages((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
-      onPaginatedRef.current?.(next.length);
+      if (!exactRef.current) onPaginatedRef.current?.(next.length);
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -195,6 +264,10 @@ export default function CvPreview({
     fit();
     void document.fonts?.ready.then(fit);
   }, [pages, blocks, design, data]);
+
+  useEffect(() => {
+    if (exact) onPaginatedRef.current?.(exact.layout.pages.length);
+  }, [exact]);
 
   // Pages are measured after render, so for one render after an edit they can
   // still describe the old blocks. Pages that do not fit the current blocks
@@ -241,7 +314,9 @@ export default function CvPreview({
       {stylesheets.map((href) => (
         <link key={href} rel="stylesheet" href={href} />
       ))}
-      <style>{`@page { size: ${design.page.size === 'letter' ? 'Letter' : 'A4'}; margin: 0; }\n${embeddedFontCss(design)}`}</style>
+      <style>{`${exact ? '' : `@page { size: ${design.page.size === 'letter' ? 'Letter' : 'A4'}; margin: 0; }\n`}${embeddedFontCss(design)}${
+        bands ? `\n${replicaFontCss(bands.source)}` : ''
+      }`}</style>
 
       {/* Off-screen but laid out, even while printing, so measurements never collapse to zero mid-print. */}
       <div className="cv-measure" aria-hidden>
@@ -260,46 +335,50 @@ export default function CvPreview({
         )}
       </div>
 
-      <div ref={wrapperRef} className="print-surface w-full">
-        <div
-          className="cv-scaler relative"
-          style={{ width: sheetWidthPx, height: stackHeight * scale, transform: `scale(${scale})` }}
-        >
-          {shown.map((set, p) => {
-            const sideCol = (
-              <div className="cv-col" style={{ width: `${widths.side}mm`, flexShrink: 0, display: 'flow-root' }}>
-                {set.side.map(block)}
-              </div>
-            );
-            return (
-              <div
-                key={p}
-                className="cv-page cv-sheet relative"
-                lang="en"
-                style={{ ...pageStyle(design), marginBottom: p < pageCount - 1 ? PAGE_GAP_PX : 0 }}
-              >
-                <div className="cv-page-body" style={{ display: 'flow-root' }}>
-                  {set.full.map(block)}
-                  {twoCol ? (
-                    <div style={{ display: 'flex', gap: `${widths.gap}mm`, alignItems: 'flex-start' }}>
-                      {design.layout.sideColumn === 'left' && sideCol}
-                      <div className="cv-col" style={{ flex: 1, minWidth: 0, display: 'flow-root' }}>
-                        {set.main.map(block)}
-                      </div>
-                      {design.layout.sideColumn === 'right' && sideCol}
-                    </div>
-                  ) : (
-                    set.main.map(block)
-                  )}
+      {exact ? (
+        <ExactPages wrapperRef={wrapperRef} source={exact} scale={scale} design={design} data={data} overlay={overlay} />
+      ) : (
+        <div ref={wrapperRef} className="print-surface w-full">
+          <div
+            className="cv-scaler relative"
+            style={{ width: sheetWidthPx, height: stackHeight * scale, transform: `scale(${scale})` }}
+          >
+            {shown.map((set, p) => {
+              const sideCol = (
+                <div className="cv-col" style={{ width: `${widths.side}mm`, flexShrink: 0, display: 'flow-root' }}>
+                  {set.side.map(block)}
                 </div>
-                {overlay?.srcs[p] && overlayImg(overlay.srcs[p], p)}
-              </div>
-            );
-          })}
+              );
+              return (
+                <div
+                  key={p}
+                  className="cv-page cv-sheet relative"
+                  lang="en"
+                  style={{ ...pageStyle(design), marginBottom: p < pageCount - 1 ? PAGE_GAP_PX : 0 }}
+                >
+                  <div className="cv-page-body" style={{ display: 'flow-root' }}>
+                    {set.full.map(block)}
+                    {twoCol ? (
+                      <div style={{ display: 'flex', gap: `${widths.gap}mm`, alignItems: 'flex-start' }}>
+                        {design.layout.sideColumn === 'left' && sideCol}
+                        <div className="cv-col" style={{ flex: 1, minWidth: 0, display: 'flow-root' }}>
+                          {set.main.map(block)}
+                        </div>
+                        {design.layout.sideColumn === 'right' && sideCol}
+                      </div>
+                    ) : (
+                      set.main.map(block)
+                    )}
+                  </div>
+                  {overlay?.srcs[p] && overlayImg(overlay.srcs[p], p)}
+                </div>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
-      {pageCount > (targetPages ?? 1) && (
+      {!exact && pageCount > (targetPages ?? 1) && (
         <p className="no-print mt-3 text-xs text-amber-700 dark:text-amber-400">
           This CV runs to {pageCount} pages
           {targetPages ? `; your original was ${targetPages}` : ''}. Drop an entry or a few
@@ -307,5 +386,64 @@ export default function CvPreview({
         </p>
       )}
     </div>
+  );
+}
+
+/** The original's pages, redrawn by the replica, in the same sheets and scaler the rebuild uses. */
+function ExactPages({
+  wrapperRef,
+  source,
+  scale,
+  design,
+  data,
+  overlay,
+}: {
+  wrapperRef: React.RefObject<HTMLDivElement | null>;
+  source: ReplicaSource;
+  scale: number;
+  design: DesignSpec;
+  data: CvDocumentData;
+  overlay?: { srcs: string[]; opacity: number };
+}) {
+  const pages = source.layout.pages;
+  const first = pages[0];
+  const hrefs = useMemo(() => replicaLinks(source, data), [source, data]);
+  const stackHeight = pages.reduce((h, p) => h + p.height * PX_PER_PT, 0) + (pages.length - 1) * PAGE_GAP_PX;
+  return (
+    <>
+      <style>{`@page { size: ${first.width}pt ${first.height}pt; margin: 0; }
+${replicaFontCss(source)}`}</style>
+      <div ref={wrapperRef} className="print-surface w-full">
+        <div
+          className="cv-scaler relative"
+          style={{ width: first.width * PX_PER_PT, height: stackHeight * scale, transform: `scale(${scale})` }}
+        >
+          {pages.map((p, i) => (
+            <div
+              key={i}
+              className="cv-page cv-sheet relative"
+              data-replica
+              style={{
+                width: `${p.width}pt`,
+                height: `${p.height}pt`,
+                background: '#ffffff',
+                marginBottom: i < pages.length - 1 ? PAGE_GAP_PX : 0,
+              }}
+            >
+              <ReplicaPage source={source} index={i} design={design} hrefs={hrefs} />
+              {overlay?.srcs[i] && (
+                // eslint-disable-next-line @next/next/no-img-element -- a raw render served from our own API.
+                <img
+                  src={overlay.srcs[i]}
+                  alt={`Original page ${i + 1}`}
+                  className="no-print pointer-events-none absolute top-0 left-0"
+                  style={{ width: '100%', height: '100%', opacity: overlay.opacity, mixBlendMode: 'multiply' }}
+                />
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
   );
 }

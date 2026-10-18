@@ -7,6 +7,7 @@ import { useApp } from '@/components/AppProvider';
 import CvChat from '@/components/cv/CvChat';
 import CvEditor from '@/components/cv/CvEditor';
 import CvPreview from '@/components/cv/CvPreview';
+import { useReplicaSource } from '@/components/cv/Replica';
 import { Badge, Button, ErrorNote, Input, Panel, Spinner, cx } from '@/components/ui/kit';
 import { api } from '@/lib/client-api';
 import type { CareerLibrary, ChatTurn, CvDocumentData, DesignSpec, SavedCv } from '@/types/cv';
@@ -14,7 +15,8 @@ import type { CareerLibrary, ChatTurn, CvDocumentData, DesignSpec, SavedCv } fro
 export default function CvPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { refresh, source } = useApp();
+  const { refresh, source, originalDocument } = useApp();
+  const replica = useReplicaSource();
 
   const [cv, setCv] = useState<SavedCv | null>(null);
   const [design, setDesign] = useState<DesignSpec | null>(null);
@@ -158,7 +160,13 @@ export default function CvPage() {
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px]">
         <div className="min-w-0 rounded-lg bg-foreground/5 p-5">
-          <CvPreview design={design} data={data} targetPages={source?.pageCount} onPaginated={setPageCount} />
+          <CvPreview
+            design={design}
+            data={data}
+            targetPages={source?.pageCount}
+            onPaginated={setPageCount}
+            replica={{ source: replica, original: originalDocument }}
+          />
         </div>
 
         <div className="no-print min-w-0">

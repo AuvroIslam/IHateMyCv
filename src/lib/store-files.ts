@@ -17,6 +17,7 @@ const files = (dir: string) => ({
   fonts: path.join(dir, 'source-fonts'),
   layout: path.join(dir, 'source-layout.json'),
   pdf: path.join(dir, 'source.pdf'),
+  backgrounds: path.join(dir, 'source-backgrounds'),
 });
 
 const EMPTY: Store = {
@@ -168,6 +169,30 @@ export async function readPageImage(page: number): Promise<Buffer | null> {
   if (!Number.isInteger(page) || page < 1) return null;
   try {
     return await fs.readFile(path.join(files(await dirOf()).pages, `page-${page}.jpg`));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Page backgrounds (the original with its text erased) for the exact replica.
+
+export async function savePageBackgrounds(images: { data: string }[]): Promise<number> {
+  const dir = files(await dirOf()).backgrounds;
+  await fs.rm(dir, { recursive: true, force: true });
+  if (images.length === 0) return 0;
+  await fs.mkdir(dir, { recursive: true });
+  await Promise.all(
+    images.map((img, i) => fs.writeFile(path.join(/*turbopackIgnore: true*/ dir, `page-${i + 1}.png`), Buffer.from(img.data, 'base64'))),
+  );
+  return images.length;
+}
+
+export async function readPageBackground(page: number): Promise<Buffer | null> {
+  if (!Number.isInteger(page) || page < 1) return null;
+  try {
+    return await fs.readFile(path.join(/*turbopackIgnore: true*/ files(await dirOf()).backgrounds, `page-${page}.png`));
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw err;

@@ -78,6 +78,7 @@ export default function UploadPage() {
           images: parsed.images,
           fonts: parsed.fonts,
           layout: parsed.layout,
+          backgrounds: parsed.backgrounds,
           pdf: parsed.kind === 'pdf' ? toBase64(new Uint8Array(await file.arrayBuffer())) : undefined,
         });
 

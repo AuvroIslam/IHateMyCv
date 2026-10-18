@@ -118,6 +118,12 @@ export interface Block {
   keepWithNext: boolean;
   /** Two-column CVs: the header spans the page, sections sit in a column. */
   column: 'full' | 'main' | 'side';
+  /**
+   * Everything the block prints, as plain values: two blocks with the same
+   * content print the same. Lets the replica redraw a block that tailoring
+   * left untouched straight from the original PDF.
+   */
+  content: unknown[];
 }
 
 /** A two-column CV with something actually in its side column. */
@@ -135,8 +141,15 @@ export function columnWidthsMm(design: DesignSpec) {
 
 export function buildBlocks(design: DesignSpec, data: CvDocumentData): Block[] {
   const twoCol = isTwoColumn(design, data);
+  const p = data.personal;
   const blocks: Block[] = [
-    { key: 'header', node: <Header design={design} data={data} />, keepWithNext: false, column: twoCol ? 'full' : 'main' },
+    {
+      key: 'header',
+      node: <Header design={design} data={data} />,
+      keepWithNext: false,
+      column: twoCol ? 'full' : 'main',
+      content: [p.fullName, p.headline, p.email, p.phone, p.location, p.links.map((l) => [l.label, l.value])],
+    },
   ];
 
   const sections = [
@@ -151,6 +164,7 @@ export function buildBlocks(design: DesignSpec, data: CvDocumentData): Block[] {
       blocks.push({ ...b, column, node: gutter ? <div style={{ paddingLeft: pt(gutter) }}>{b.node}</div> : b.node });
     push({
       key: `${def.id}:heading`,
+      content: [section.title ?? def.title],
       node: <SectionHeading
           design={design}
           title={section.title ?? def.title}
@@ -163,6 +177,7 @@ export function buildBlocks(design: DesignSpec, data: CvDocumentData): Block[] {
     if (def.type === 'summary') {
       push({
         key: `${def.id}:summary`,
+        content: [section.summary?.trim() ?? ''],
         node: (
           <Paragraph
             design={design}
@@ -176,25 +191,35 @@ export function buildBlocks(design: DesignSpec, data: CvDocumentData): Block[] {
         keepWithNext: false,
       });
     } else if (def.type === 'skills') {
+      // Which groups land in which block depends on the layout, so each block
+      // stands for the whole set: any change redraws them all.
+      const groups = section.skillGroups.map((g) => [g.category, g.skills]);
       skillBlocks(design, section.skillGroups).forEach((node, i) =>
-        push({ key: `${def.id}:skills:${i}`, node, keepWithNext: false }),
+        push({ key: `${def.id}:skills:${i}`, node, keepWithNext: false, content: [i, groups] }),
       );
     } else {
       section.entries.forEach((entry, i) => {
         if (startsGroup(section.entries, i)) {
           push({
             key: `${def.id}:group:${i}`,
+            content: [entry.group, i === 0],
             node: <GroupLabel design={design} label={entry.group!} first={i === 0} />,
             keepWithNext: true,
           });
         }
+        const last = i === section.entries.length - 1;
         push({
           key: `${def.id}:${entry.entryId ?? i}`,
+          content: [
+            entryContent(entry),
+            last,
+            def.mergeRepeats && section.entries[i - 1] ? entryContent(section.entries[i - 1]) : null,
+          ],
           node: (
             <Entry
               design={design}
               entry={entry}
-              isLast={i === section.entries.length - 1}
+              isLast={last}
               layout={def.entryLayout}
               joiner={def.titleJoiner}
               spacing={def.spacing}
@@ -210,6 +235,10 @@ export function buildBlocks(design: DesignSpec, data: CvDocumentData): Block[] {
     }
   }
   return blocks;
+}
+
+function entryContent(e: RenderedEntry): unknown[] {
+  return [e.title, e.subtitle, e.location, e.dateText, e.note, e.link, (e.links ?? []).map((l) => [l.label, l.url]), e.bullets];
 }
 
 /** A sub-heading prints wherever the group changes, including after tailoring reorders. */

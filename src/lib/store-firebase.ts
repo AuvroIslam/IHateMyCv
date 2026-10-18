@@ -185,3 +185,18 @@ export async function readPageImage(page: number): Promise<Buffer | null> {
   if (!Number.isInteger(page) || page < 1) return null;
   return read(await workspaceId(), `source-pages/page-${page}.jpg`);
 }
+
+/** Replaces the page backgrounds (the original with its text erased). */
+export async function savePageBackgrounds(images: { data: string }[]): Promise<number> {
+  const uid = await workspaceId();
+  await removePrefix(uid, 'source-backgrounds/');
+  await Promise.all(
+    images.map((img, i) => save(uid, `source-backgrounds/page-${i + 1}.png`, Buffer.from(img.data, 'base64'), 'image/png')),
+  );
+  return images.length;
+}
+
+export async function readPageBackground(page: number): Promise<Buffer | null> {
+  if (!Number.isInteger(page) || page < 1) return null;
+  return read(await workspaceId(), `source-backgrounds/page-${page}.png`);
+}

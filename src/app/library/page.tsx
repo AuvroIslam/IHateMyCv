@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '@/components/AppProvider';
 import CvPreview from '@/components/cv/CvPreview';
+import { useReplicaSource } from '@/components/cv/Replica';
 import {
   EntryCard,
   ImportFromNotes,
@@ -20,7 +21,8 @@ import type { CareerLibrary, LibraryEntry, SkillGroup } from '@/types/cv';
 type Tab = { key: string; label: string };
 
 export default function LibraryPage() {
-  const { library, design, loading, error, saveLibrary, hasApiKey } = useApp();
+  const { library, design, loading, error, saveLibrary, hasApiKey, originalDocument } = useApp();
+  const replica = useReplicaSource();
   const [draft, setDraft] = useState<CareerLibrary | null>(null);
   /** Entries just created, which open expanded so they get reviewed. */
   const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
@@ -361,7 +363,7 @@ export default function LibraryPage() {
                 Live preview: everything in your library, in your design. Archived items are left out;
                 tailored CVs pick from this.
               </p>
-              <CvPreview design={design} data={previewDoc} />
+              <CvPreview design={design} data={previewDoc} replica={{ source: replica, original: originalDocument }} />
             </div>
           </aside>
         )}

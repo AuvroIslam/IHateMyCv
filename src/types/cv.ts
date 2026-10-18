@@ -366,6 +366,14 @@ export interface SourceRun {
   italic?: boolean;
   /** Font size, when it differs from the line's (a smaller date beside a title). */
   size?: number;
+  /** Baseline, when it differs from the line's (a raised superscript). */
+  y?: number;
+  /** The embedded font (UploadedFont id) that drew it. */
+  face?: string;
+  /** Fill colour, when not black. */
+  color?: string;
+  /** A bullet the PDF drew as a shape, stood in for by "•"; the page background has the dot. */
+  drawn?: boolean;
 }
 
 export interface SourceLine {
@@ -607,6 +615,8 @@ export interface SourceMeta {
   textPreview: string;
   /** Number of original page renders kept on disk for design comparison. */
   pageImages?: number;
+  /** How many text-free page backgrounds were kept for the exact replica. */
+  backgrounds?: number;
 }
 
 export interface Store {

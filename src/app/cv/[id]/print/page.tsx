@@ -2,7 +2,9 @@
 
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { useApp } from '@/components/AppProvider';
 import CvPreview from '@/components/cv/CvPreview';
+import { useReplicaSource } from '@/components/cv/Replica';
 import { ErrorNote, Spinner } from '@/components/ui/kit';
 import { api } from '@/lib/client-api';
 import type { CvDocumentData, DesignSpec } from '@/types/cv';
@@ -17,6 +19,8 @@ export default function PrintPage() {
   const [data, setData] = useState<CvDocumentData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [laidOut, setLaidOut] = useState(false);
+  const { originalDocument } = useApp();
+  const replica = useReplicaSource();
 
   useEffect(() => {
     let cancelled = false;
@@ -82,7 +86,12 @@ export default function PrintPage() {
         Your browser&apos;s print dialog should have opened. Choose &ldquo;Save as PDF&rdquo;, and set
         margins to <strong>None</strong> — the page margins are already part of the design.
       </p>
-      <CvPreview design={design} data={data} onPaginated={() => setLaidOut(true)} />
+      <CvPreview
+        design={design}
+        data={data}
+        replica={{ source: replica, original: originalDocument }}
+        onPaginated={() => setLaidOut(true)}
+      />
     </div>
   );
 }

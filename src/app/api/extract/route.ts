@@ -15,7 +15,7 @@ import {
   tagsUserPrompt,
 } from '@/lib/prompts';
 import { contentSchema, designBodySchema, designPageSchema, tagsSchema, type ExtractionResult } from '@/lib/schemas';
-import { mutateStore, readStore, savePageImages, saveSourceFonts, saveSourceLayout } from '@/lib/store';
+import { mutateStore, readStore, savePageBackgrounds, savePageImages, saveSourceFonts, saveSourceLayout } from '@/lib/store';
 import { workspaceId } from '@/lib/workspace';
 import type { SourceLayout, UploadedFont } from '@/types/cv';
 import { consume } from '@/lib/limits';
@@ -32,7 +32,12 @@ interface ExtractBody {
   layout?: SourceLayout | null;
   /** The original PDF, base64. Kept so alignment can be re-checked later. */
   pdf?: string;
+  /** Each page with its text erased, PNG base64, for the exact replica. */
+  backgrounds?: { mediaType: string; data: string }[];
 }
+
+/** A text-free page render is a few hundred KB; this only stops something absurd. */
+const MAX_BACKGROUND_B64 = 6_000_000;
 
 const MAX_PDF_B64 = 20_000_000;
 const MAX_FONTS = 24;
@@ -104,18 +109,32 @@ export async function POST(request: Request) {
 
     // The PDF's own fonts. Client ids are replaced so nothing from the request
     // ever becomes a file name.
+    const fontIds = new Map<string, string>();
     const fonts: UploadedFont[] = (body.fonts ?? [])
       .filter((f) => typeof f.data === 'string' && f.data.length < MAX_FONT_B64 && Array.isArray(f.usage))
       .slice(0, MAX_FONTS)
       .map((f) => ({
         ...f,
-        id: newId(),
+        id: fontIds.set(String(f.id), newId()).get(String(f.id))!,
         name: String(f.name ?? '').slice(0, 80),
         format: f.format === 'ttf' ? 'ttf' : 'otf',
         bold: Boolean(f.bold),
         italic: Boolean(f.italic),
       }));
     await saveSourceFonts(fonts);
+    // Runs name their font by the client's id; point them at the stored one.
+    for (const page of layout?.pages ?? []) {
+      for (const line of page.lines) {
+        for (const run of line.runs) {
+          const id = run.face ? fontIds.get(run.face) : undefined;
+          if (id) run.face = id;
+          else delete run.face;
+        }
+      }
+    }
+    const backgrounds = await savePageBackgrounds(
+      (body.backgrounds ?? []).filter((b) => typeof b.data === 'string' && b.data.length < MAX_BACKGROUND_B64).slice(0, 6),
+    );
     await saveSourceLayout(
       layout,
       typeof body.pdf === 'string' && body.pdf.length < MAX_PDF_B64 ? body.pdf : undefined,
@@ -136,6 +155,7 @@ export async function POST(request: Request) {
         pageCount,
         textPreview: (body.rawText ?? '').slice(0, 4000),
         pageImages,
+        backgrounds,
       };
       // The library was rebuilt from a new source document, so previously
       // generated CVs reference entry ids that no longer exist.

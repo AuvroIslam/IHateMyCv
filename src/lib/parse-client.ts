@@ -26,6 +26,11 @@ export interface ParsedUpload {
   fonts: UploadedFont[];
   /** Where every line sat on the original, for auto-alignment. Null without layout info. */
   layout: SourceLayout | null;
+  /**
+   * Each page with its text erased: the lines, icons, photos and coloured
+   * blocks the exact replica draws its text over. PNG, base64.
+   */
+  backgrounds: { mediaType: string; data: string }[];
 }
 
 /** Runs set in an icon font, or made only of private-use or emoji characters. */
@@ -53,6 +58,8 @@ const MAX_VISION_PAGES = 3;
 /** Share of a font's own characters it must draw after remapping to be used. */
 const MIN_FONT_COVERAGE = 0.9;
 const MAX_DUMP_LINES_PER_PAGE = 260;
+/** Pages kept as replica backgrounds; CVs past this length render without the replica. */
+const MAX_BACKGROUND_PAGES = 6;
 
 type PdfModule = typeof import('pdfjs-dist');
 
@@ -79,6 +86,12 @@ export interface Run {
   text: string;
   bold: boolean;
   italic: boolean;
+  /** pdf.js's id for the run's font, until fonts are packed and it becomes an embedded face id. */
+  ref?: string;
+  /** Fill colour, when not black. */
+  color?: string;
+  /** A "•" standing in for a bullet the PDF drew as a shape (the background keeps the dot). */
+  drawn?: boolean;
 }
 
 export async function parseUpload(file: File): Promise<ParsedUpload> {
@@ -99,6 +112,7 @@ async function parsePdf(file: File): Promise<ParsedUpload> {
   const dumpParts: string[] = [];
   const rawParts: string[] = [];
   const images: ParsedUpload['images'] = [];
+  const backgrounds: ParsedUpload['backgrounds'] = [];
   const fontUse = new Map<string, FontUse>();
   const layout: SourceLayout = { pages: [] };
 
@@ -113,7 +127,8 @@ async function parsePdf(file: File): Promise<ParsedUpload> {
     const content = await page.getTextContent();
 
     const runs: Run[] = [];
-    for (const item of content.items) {
+    const colors = textColors(ops, pdfjs.OPS, content.items);
+    for (const [index, item] of content.items.entries()) {
       if (!('str' in item) || !item.str.trim()) continue;
       const t = item.transform as number[];
       const size = Math.hypot(t[2], t[3]) || item.height || 0;
@@ -133,6 +148,8 @@ async function parsePdf(file: File): Promise<ParsedUpload> {
         font: fontName,
         text: str,
         ...fontFlags(fontName),
+        ref: item.fontName,
+        ...(colors[index] && colors[index] !== '#000000' ? { color: colors[index] } : {}),
       });
       recordFontUse(fontUse, page, item.fontName, round(size), str);
     }
@@ -183,6 +200,10 @@ async function parsePdf(file: File): Promise<ParsedUpload> {
           ...(r.bold ? { bold: true } : {}),
           ...(r.italic ? { italic: true } : {}),
           ...(r.size !== l.size ? { size: r.size } : {}),
+          ...(Math.abs(r.y - l.y) > 0.3 ? { y: r.y } : {}),
+          ...(r.ref ? { face: r.ref } : {}),
+          ...(r.color ? { color: r.color } : {}),
+          ...(r.drawn ? { drawn: true } : {}),
         })),
       })),
     });
@@ -199,7 +220,23 @@ async function parsePdf(file: File): Promise<ParsedUpload> {
     if (pageNo <= MAX_VISION_PAGES) {
       images.push(await renderPage(page, viewport));
     }
+    if (pageNo <= MAX_BACKGROUND_PAGES) {
+      backgrounds.push(await renderBackground(page, viewport, lines, marks.rules));
+    }
     page.cleanup();
+  }
+
+  // Each run names its embedded font by the id the font is uploaded under;
+  // runs in fonts that could not be embedded fall back to the matched web font.
+  const { fonts, faceOf } = packFonts(fontUse);
+  for (const page of layout.pages) {
+    for (const line of page.lines) {
+      for (const run of line.runs) {
+        const id = run.face ? faceOf.get(run.face) : undefined;
+        if (id) run.face = id;
+        else delete run.face;
+      }
+    }
   }
 
   return {
@@ -209,7 +246,8 @@ async function parsePdf(file: File): Promise<ParsedUpload> {
     textDump: dumpParts.join('\n'),
     rawText: rawParts.join('\n\n'),
     images,
-    fonts: packFonts(fontUse),
+    fonts,
+    backgrounds,
     layout,
   };
 }
@@ -280,10 +318,11 @@ function unicodeToFontCode(font: PdfFont): Map<number, number> {
  * fails is simply left out: the renderer then uses the catalogue match, which
  * is exactly what happened before fonts were extracted at all.
  */
-function packFonts(use: Map<string, FontUse>): UploadedFont[] {
+function packFonts(use: Map<string, FontUse>): { fonts: UploadedFont[]; faceOf: Map<string, string> } {
   const out: UploadedFont[] = [];
+  const faceOf = new Map<string, string>();
   let i = 0;
-  for (const { font, chars, bySize } of use.values()) {
+  for (const [ref, { font, chars, bySize }] of use.entries()) {
     if (!font.data || font.isType3Font || font.missingFile || chars.size === 0) continue;
     // Only characters this font actually drew. A subset font keeps blank
     // slots for the rest of its encoding, and mapping those would print an
@@ -299,8 +338,10 @@ function packFonts(use: Map<string, FontUse>): UploadedFont[] {
 
     const name = (font.name ?? 'font').replace(/^[A-Z]{6}\+/, '');
     const flags = fontFlags(name);
+    const id = `f${i++}`;
+    faceOf.set(ref, id);
     out.push({
-      id: `f${i++}`,
+      id,
       name,
       bold: flags.bold || Boolean(font.bold),
       italic: flags.italic || Boolean(font.italic),
@@ -310,7 +351,7 @@ function packFonts(use: Map<string, FontUse>): UploadedFont[] {
       usage: Array.from(bySize, ([size, chars]) => ({ size, chars })),
     });
   }
-  return out;
+  return { fonts: out, faceOf };
 }
 
 export function toBase64(bytes: Uint8Array): string {
@@ -498,7 +539,7 @@ function markDrawnBullets(lines: Line[], dots: { x: number; y: number }[]) {
       const k = runs.findIndex((r) => r.x > d.x && r.x - d.x < 25);
       if (k < 0 || (k > 0 && runs[k - 1].xEnd > d.x)) continue; // inside other text: not a list dot
       if (/^\s*[•·◦▪∙‣–-]/u.test(runs[k].text) || (k > 0 && runs[k - 1].text.trim() === '•')) continue;
-      runs.splice(k, 0, { ...runs[k], x: round(d.x - 1.5), xEnd: round(d.x + 1.5), text: '•', bold: false, italic: false });
+      runs.splice(k, 0, { ...runs[k], x: round(d.x - 1.5), xEnd: round(d.x + 1.5), text: '•', bold: false, italic: false, drawn: true });
       added = true;
     }
     if (added) lines[i] = { ...toLine(runs), col: line.col };
@@ -714,6 +755,116 @@ function separatorGaps(line: Line): { glyph: string; left: number; right: number
   return out;
 }
 
+/**
+ * A page with its text erased, for the exact replica to draw live text over.
+ * Each run's box is filled with the colour around it - CV backgrounds are
+ * flat - and the thin lines that run through text boxes (underlines) are
+ * drawn back from their vectors. Icons, photos, rules and coloured blocks
+ * stay as they were.
+ */
+async function renderBackground(
+  page: import('pdfjs-dist').PDFPageProxy,
+  baseViewport: { width: number; height: number },
+  lines: Line[],
+  rules: DrawnRule[],
+): Promise<{ mediaType: string; data: string }> {
+  const scale = 2;
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil(viewport.width);
+  canvas.height = Math.ceil(viewport.height);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) throw new Error('Could not create a canvas to render the PDF.');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvas, canvasContext: ctx, viewport }).promise;
+
+  const W = canvas.width;
+  const H = canvas.height;
+  for (const line of lines) {
+    for (const run of line.runs) {
+      if (run.drawn || !run.text.trim()) continue; // a drawn bullet stays in the picture
+      const size = run.size || line.size;
+      const x0 = Math.max(0, Math.floor((run.x - 0.5) * scale));
+      const x1 = Math.min(W, Math.ceil((run.xEnd + 0.5) * scale));
+      const y0 = Math.max(0, Math.floor((run.y - size * 0.9) * scale));
+      const y1 = Math.min(H, Math.ceil((run.y + size * 0.28) * scale));
+      if (x1 <= x0 || y1 <= y0) continue;
+      ctx.fillStyle = surroundingColour(ctx, x0, y0, x1, y1, W, H);
+      ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+    }
+  }
+  for (const r of rules) {
+    ctx.fillStyle = r.color ?? '#000000';
+    const t = Math.max(1, r.thickness * scale);
+    ctx.fillRect(r.x0 * scale, r.y * scale - t / 2, (r.x1 - r.x0) * scale, t);
+  }
+  void baseViewport;
+  return { mediaType: 'image/png', data: canvas.toDataURL('image/png').split(',')[1] };
+}
+
+/** The commonest colour on the box's border, just outside it: the paper (or panel) behind the text. */
+function surroundingColour(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number, W: number, H: number): string {
+  const counts = new Map<string, number>();
+  const sample = (x: number, y: number, w: number, h: number) => {
+    if (w <= 0 || h <= 0) return;
+    const d = ctx.getImageData(x, y, w, h).data;
+    for (let i = 0; i < d.length; i += 16) {
+      const key = `${d[i]},${d[i + 1]},${d[i + 2]}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  };
+  sample(x0, Math.max(0, y0 - 2), x1 - x0, Math.min(2, y0));
+  sample(x0, y1, x1 - x0, Math.min(2, H - y1));
+  sample(Math.max(0, x0 - 2), y0, Math.min(2, x0), y1 - y0);
+  sample(x1, y0, Math.min(2, W - x1), y1 - y0);
+  const best = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '255,255,255';
+  return `rgb(${best})`;
+}
+
+/**
+ * Each text item's fill colour. The text layer does not report colour, but
+ * the drawing operations do, in the same order: walk the glyphs both list,
+ * letter by letter, and give each item the colour its first letter was
+ * drawn in.
+ */
+function textColors(ops: { fnArray: number[]; argsArray: unknown[] }, OPS: PdfModule['OPS'], items: unknown[]): (string | undefined)[] {
+  const letters: string[] = [];
+  const fills: string[] = [];
+  let fill = '#000000';
+  const stack: string[] = [];
+  ops.fnArray.forEach((fn, i) => {
+    const args = ops.argsArray[i] as unknown[];
+    if (fn === OPS.save) stack.push(fill);
+    else if (fn === OPS.restore) fill = stack.pop() ?? fill;
+    else if (fn === OPS.setFillRGBColor) fill = String(args[0]);
+    else if (fn === OPS.showText) {
+      for (const g of (args[0] as unknown[]) ?? []) {
+        const u = g && typeof g === 'object' ? (g as { unicode?: string }).unicode : undefined;
+        for (const ch of u ?? '') {
+          if (!ch.trim()) continue;
+          letters.push(ch);
+          fills.push(fill);
+        }
+      }
+    }
+  });
+  let at = 0;
+  return items.map((item) => {
+    const str = item && typeof item === 'object' && 'str' in item ? String((item as { str: string }).str) : '';
+    const visible = [...str].filter((c) => c.trim());
+    if (!visible.length) return undefined;
+    // Search a little ahead: ligatures and dropped marks shift the two lists apart.
+    for (let k = at; k < Math.min(letters.length, at + 400); k++) {
+      if (letters[k] === visible[0]) {
+        at = k + visible.length;
+        return fills[k];
+      }
+    }
+    return undefined;
+  });
+}
+
 async function renderPage(
   page: import('pdfjs-dist').PDFPageProxy,
   baseViewport: { width: number; height: number },
@@ -766,6 +917,7 @@ async function parseDocx(file: File): Promise<ParsedUpload> {
     pageCount: Math.max(1, Math.ceil(rawText.length / 3200)),
     fonts: [],
     layout: null,
+    backgrounds: [],
     textDump: [
       '--- DOCX STRUCTURE (no coordinates available) ---',
       ...lines,
@@ -789,6 +941,7 @@ async function parseText(file: File): Promise<ParsedUpload> {
     images: [],
     fonts: [],
     layout: null,
+    backgrounds: [],
   };
 }
 
