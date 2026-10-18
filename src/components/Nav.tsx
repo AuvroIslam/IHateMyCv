@@ -11,6 +11,7 @@ const LINKS = [
   { href: '/library', label: 'Career Library' },
   { href: '/design', label: 'Design' },
   { href: '/tailor', label: 'Tailor' },
+  { href: '/chat', label: 'Chat' },
   { href: '/cvs', label: 'My CVs' },
 ];
 
@@ -30,7 +31,9 @@ export default function Nav() {
         <nav className={cx('flex items-center gap-1 text-sm', signedOut && 'hidden')}>
           {LINKS.map((link) => {
             const active =
-              link.href === '/' ? pathname === '/' : pathname.startsWith(link.href);
+              link.href === '/'
+                ? pathname === '/'
+                : pathname.startsWith(link.href) || (link.href === '/chat' && pathname.startsWith('/cv/'));
             return (
               <Link
                 key={link.href}

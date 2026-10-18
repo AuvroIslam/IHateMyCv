@@ -169,7 +169,8 @@ export default function CvPage() {
           />
         </div>
 
-        <div className="no-print min-w-0">
+        {/* Stays in view while the preview scrolls, so chat edits are seen as they land. */}
+        <div className="no-print min-w-0 lg:sticky lg:top-20 lg:self-start">
           <div className="flex gap-1 border-b border-line">
             {(['chat', 'content', 'report'] as const).map((key) => (
               <button

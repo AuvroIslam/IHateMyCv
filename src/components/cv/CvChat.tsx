@@ -204,7 +204,7 @@ export default function CvChat({
             }
           }}
           rows={2}
-          placeholder="e.g. Shorten the Mio bullets and lead with BalanceLoop"
+          placeholder={example(data)}
           className="min-h-[3.25rem] flex-1 resize-none text-sm"
           disabled={busy}
         />
@@ -249,4 +249,13 @@ function AssistantTurn({
       {children}
     </div>
   );
+}
+
+/** An example request about this CV's own content. */
+function example(data: CvDocumentData): string {
+  const entry = data.sections
+    .flatMap((s) => (s.hidden ? [] : s.entries))
+    .filter((e) => e.bullets.length > 1 && e.title.trim())
+    .sort((x, y) => y.bullets.length - x.bullets.length)[0];
+  return entry ? `e.g. Shorten the ${entry.title.trim()} bullets` : 'e.g. Make my summary shorter';
 }

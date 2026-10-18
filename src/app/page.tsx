@@ -84,9 +84,14 @@ export default function HomePage() {
               : 'Career Library ready.'}
           </p>
         </div>
-        <Link href="/tailor">
-          <Button variant="primary">Tailor for a job</Button>
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/chat">
+            <Button>Edit by chat</Button>
+          </Link>
+          <Link href="/tailor">
+            <Button variant="primary">Tailor for a job</Button>
+          </Link>
+        </div>
       </div>
 
       <div className="mt-6 grid gap-3 sm:grid-cols-4">
