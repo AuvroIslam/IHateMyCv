@@ -30,26 +30,35 @@ type Stage =
  * where a CV says something different, the owner picks which to keep. Nothing
  * changes until they apply.
  */
+/** The review for what some CVs would bring into My Info. */
+function reviewOf(current: Profile, incoming: { profile: Profile; from: string }[]): Stage {
+  const plan = planImport(current, incoming);
+  const sources = incoming.map((s) => s.from);
+  return planIsEmpty(plan) ? { step: 'nothing', sources } : { step: 'review', plan, choices: defaultChoices(plan), sources };
+}
+
 export default function ImportFlow({
   current,
   original,
   onApply,
+  start,
+  onDone,
 }: {
   current: Profile;
   /** The uploaded CV, already in Profile form, when there is one. */
   original: Profile | null;
   onApply: (next: Profile) => Promise<void>;
+  /** Opens straight on the review of these (right after an upload), with no button of its own. */
+  start?: { profile: Profile; from: string }[];
+  /** The dialog closed, applied or not. */
+  onDone?: () => void;
 }) {
-  const [stage, setStage] = useState<Stage>({ step: 'closed' });
+  const [stage, setStage] = useState<Stage>(() => (start ? reviewOf(current, start) : { step: 'closed' }));
   const [error, setError] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const review = (incoming: { profile: Profile; from: string }[]) => {
-    const plan = planImport(current, incoming);
-    const sources = incoming.map((s) => s.from);
-    setStage(planIsEmpty(plan) ? { step: 'nothing', sources } : { step: 'review', plan, choices: defaultChoices(plan), sources });
-  };
+  const review = (incoming: { profile: Profile; from: string }[]) => setStage(reviewOf(current, incoming));
 
   const readFiles = async (files: File[]) => {
     setError(null);
@@ -76,17 +85,16 @@ export default function ImportFlow({
   const close = () => {
     setStage({ step: 'closed' });
     setError(null);
+    onDone?.();
   };
 
   if (stage.step === 'closed') {
-    return (
-      <Button onClick={() => setStage({ step: 'pick' })}>Import from CVs</Button>
-    );
+    return start ? null : <Button onClick={() => setStage({ step: 'pick' })}>Import from CVs</Button>;
   }
 
   return (
     <>
-      <Button disabled>Import from CVs</Button>
+      {!start && <Button disabled>Import from CVs</Button>}
       <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:p-8" role="dialog" aria-modal>
         <div className="w-full max-w-3xl rounded-xl border border-line bg-background p-5 shadow-2xl sm:p-6">
           <div className="flex items-start justify-between gap-4">
@@ -157,7 +165,7 @@ export default function ImportFlow({
                 Nothing new: My Info already has everything in {stage.sources.join(', ')}.
               </p>
               <div className="mt-4 flex gap-2">
-                <Button onClick={() => setStage({ step: 'pick' })}>Import another</Button>
+                {!start && <Button onClick={() => setStage({ step: 'pick' })}>Import another</Button>}
                 <Button variant="primary" onClick={close}>
                   Done
                 </Button>

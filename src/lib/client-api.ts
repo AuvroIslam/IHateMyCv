@@ -94,7 +94,7 @@ export const api = {
       template: { id: string; source: SourceMeta; original: CvDocumentData } | null;
     }>(`/api/cvs/${id}`),
 
-  saveCv: (id: string, body: { data?: CvDocumentData; name?: string; chat?: ChatTurn[] }) =>
+  saveCv: (id: string, body: { data?: CvDocumentData; name?: string; chat?: ChatTurn[]; askedImport?: boolean }) =>
     call<{ cv: SavedCv }>(`/api/cvs/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
 
   deleteCv: (id: string) => call<{ ok: true }>(`/api/cvs/${id}`, { method: 'DELETE' }),

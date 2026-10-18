@@ -9,10 +9,11 @@ import CvEditor from '@/components/cv/CvEditor';
 import CvPreview from '@/components/cv/CvPreview';
 import { useReplicaSource } from '@/components/cv/Replica';
 import { Badge, Button, ErrorNote, Input, Panel, Spinner, cx } from '@/components/ui/kit';
+import ImportFlow from '@/components/profile/ImportFlow';
 import { autoAlign } from '@/lib/auto-align';
+import { normalizeProfile, profileFromDocument } from '@/lib/profile';
 import { api } from '@/lib/client-api';
-import { withProfile } from '@/lib/profile';
-import type { CareerLibrary, ChatTurn, CvDocumentData, DesignSpec, SavedCv, SourceMeta } from '@/types/cv';
+import type { ChatTurn, CvDocumentData, DesignSpec, SavedCv, SourceMeta } from '@/types/cv';
 
 export default function CvPage() {
   const { id } = useParams<{ id: string }>();
@@ -24,10 +25,10 @@ export default function CvPage() {
   const original = template ? template.original : originalDocument;
   const pageSource = template ? template.source : source;
   const [fitting, setFitting] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const [cv, setCv] = useState<SavedCv | null>(null);
   const [design, setDesign] = useState<DesignSpec | null>(null);
-  const [library, setLibrary] = useState<CareerLibrary | null>(null);
   const [data, setData] = useState<CvDocumentData | null>(null);
   const [name, setName] = useState('');
   const [tab, setTab] = useState<'chat' | 'content' | 'report'>('chat');
@@ -36,11 +37,6 @@ export default function CvPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  // What can be added to this CV: the library with My Info over it, as tailoring sees it.
-  const pickable = useMemo(
-    () => (library && design ? withProfile(library, design, profile).library : library),
-    [library, design, profile],
-  );
 
   useEffect(() => {
     let cancelled = false;
@@ -51,7 +47,6 @@ export default function CvPage() {
         setCv(res.cv);
         setDesign(res.design);
         setTemplate(res.template);
-        setLibrary(res.library);
         setData(res.cv.data);
         setName(res.cv.name);
         setChat(res.cv.chat ?? []);
@@ -86,6 +81,16 @@ export default function CvPage() {
       }
     })();
   }, [template, design]);
+
+  // Asked once per uploaded CV, whatever the answer.
+  const markAsked = useCallback(async () => {
+    setCv((c) => (c ? { ...c, askedImport: true } : c));
+    try {
+      await api.saveCv(id, { askedImport: true });
+    } catch {
+      // Asked again next time, which is harmless.
+    }
+  }, [id]);
 
   const dirty = useMemo(
     () => Boolean(cv && data && (JSON.stringify(cv.data) !== JSON.stringify(data) || cv.name !== name)),
@@ -192,6 +197,39 @@ export default function CvPage() {
         </div>
       )}
 
+      {cv.uploaded && !cv.askedImport && design && (
+        <Panel className="no-print mt-4 flex flex-wrap items-center gap-3 border-emerald-500/30 p-4 text-sm">
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">Add the information from this CV to My Info?</p>
+            <p className="mt-0.5 text-subtle">
+              Its jobs, projects and other details become available for tailoring and for adding to other CVs. You
+              see every change before anything is saved.
+            </p>
+          </div>
+          <Button variant="primary" onClick={() => setImporting(true)}>
+            Yes, review it
+          </Button>
+          <Button variant="ghost" onClick={() => void markAsked()}>
+            No thanks
+          </Button>
+        </Panel>
+      )}
+      {importing && design && (
+        <ImportFlow
+          current={normalizeProfile(profile)}
+          original={null}
+          start={[{ profile: profileFromDocument(template?.original ?? cv.data, design), from: cv.name }]}
+          onApply={async (next) => {
+            await api.saveProfile(next);
+            await refresh();
+          }}
+          onDone={() => {
+            setImporting(false);
+            void markAsked();
+          }}
+        />
+      )}
+
       <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px]">
         <div className="min-w-0 rounded-lg bg-foreground/5 p-5">
           {fitting && (
@@ -246,7 +284,7 @@ export default function CvPage() {
                 <p className="mb-3 text-xs text-subtle">
                   Change any text, link or order here. For colours and fonts, ask in Chat.
                 </p>
-                <CvEditor design={design} library={pickable} data={data} onChange={setData} />
+                <CvEditor design={design} myInfo={profile} data={data} onChange={setData} />
               </>
             ) : report ? (
               <MatchReportView report={report} />

@@ -2,11 +2,12 @@
 
 import { useState } from 'react';
 import { Button, Input, Panel, Textarea, cx } from '@/components/ui/kit';
-import { bulletPrintOf } from '@/lib/assemble';
+import Link from 'next/link';
+import { PROFILE_KINDS, norm } from '@/lib/profile';
 import { shapeLike } from '@/lib/shape';
 import type {
-  CareerLibrary,
   CvDocumentData,
+  Profile,
   DesignSpec,
   RenderedEntry,
   RenderedSection,
@@ -18,12 +19,13 @@ import type {
  */
 export default function CvEditor({
   design,
-  library,
+  myInfo,
   data,
   onChange,
 }: {
   design: DesignSpec;
-  library: CareerLibrary | null;
+  /** Where items are added from: My Info, and nothing else. */
+  myInfo: Profile | null;
   data: CvDocumentData;
   onChange: (next: CvDocumentData) => void;
 }) {
@@ -174,11 +176,11 @@ export default function CvEditor({
                     />
                   ))}
 
-                {def.type !== 'summary' && def.type !== 'skills' && library && (
-                  <AddFromLibrary
-                    library={library}
-                    sectionId={def.id}
-                    used={section.entries.map((e) => e.entryId).filter(Boolean) as string[]}
+                {def.type !== 'summary' && def.type !== 'skills' && (
+                  <AddFromMyInfo
+                    myInfo={myInfo}
+                    kind={def.type}
+                    onCv={section.entries}
                     // Shaped like the section's other entries: their fields, their link slots.
                     onAdd={(entry) =>
                       patchSection(def.id, (s) => ({ ...s, entries: [...s.entries, shapeLike(entry, s.entries)] }))
@@ -357,21 +359,34 @@ function Field({ label, value, onChange }: { label: string; value: string | unde
   );
 }
 
-function AddFromLibrary({
-  library,
-  sectionId,
-  used,
+/** Items of this section's kind from My Info that are not on the CV yet. */
+function AddFromMyInfo({
+  myInfo,
+  kind,
+  onCv,
   onAdd,
 }: {
-  library: CareerLibrary;
-  sectionId: string;
-  used: string[];
+  myInfo: Profile | null;
+  kind: string;
+  onCv: RenderedEntry[];
   onAdd: (entry: RenderedEntry) => void;
 }) {
-  const available = library.entries.filter(
-    (e) => e.sectionId === sectionId && !e.archived && !used.includes(e.id),
+  const label = PROFILE_KINDS.find((k) => k.kind === kind)?.label;
+  if (!label) return null; // a section of no kind My Info keeps
+  const available = (myInfo?.entries ?? []).filter(
+    (e) => e.sectionId === kind && (e.title.trim() || e.bullets.length) && !onCv.some((x) => norm(x.title) === norm(e.title)),
   );
-  if (available.length === 0) return null;
+  if (available.length === 0) {
+    return (
+      <p className="text-xs text-subtle">
+        Nothing more in My Info under {label}.{' '}
+        <Link href="/profile" className="underline hover:text-foreground">
+          Add it in My Info
+        </Link>{' '}
+        to bring it here.
+      </p>
+    );
+  }
 
   return (
     <select
@@ -381,23 +396,22 @@ function AddFromLibrary({
         const entry = available.find((x) => x.id === e.target.value);
         if (!entry) return;
         onAdd({
-          entryId: entry.id,
+          entryId: `p-${entry.id}`,
           title: entry.title,
           subtitle: entry.subtitle,
           location: entry.location,
           dateText: entry.dateText,
+          note: entry.note,
           link: entry.link,
           links: entry.links.map((l) => ({ ...l })),
-          group: entry.group,
-          bullets: entry.bullets.map((b) => b.text),
-          bulletPrint: bulletPrintOf(entry),
+          bullets: entry.bullets.map((b) => b.text).filter((t) => t.trim()),
         });
       }}
     >
-      <option value="">+ Add from My Info ({available.length} not on this CV)</option>
+      <option value="">+ Add from My Info ({available.length})</option>
       {available.map((entry) => (
         <option key={entry.id} value={entry.id}>
-          {entry.title}
+          {entry.title || '(untitled)'}
           {entry.subtitle ? ` — ${entry.subtitle}` : ''}
         </option>
       ))}

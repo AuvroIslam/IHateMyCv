@@ -7,7 +7,9 @@ import { useApp } from '@/components/AppProvider';
 import CvPreview from '@/components/cv/CvPreview';
 import { Button, ErrorNote, Panel, Spinner, cx } from '@/components/ui/kit';
 import { buildBaseDocument } from '@/lib/assemble';
+import ImportFlow from '@/components/profile/ImportFlow';
 import { api } from '@/lib/client-api';
+import { normalizeProfile, profileFromLibrary } from '@/lib/profile';
 import { parseUpload, toBase64 } from '@/lib/parse-client';
 import type { CareerLibrary, DesignSpec } from '@/types/cv';
 
@@ -47,7 +49,9 @@ function ExtractingNote() {
  */
 export default function UploadPage({ searchParams }: { searchParams: Promise<{ as?: string | string[] }> }) {
   const router = useRouter();
-  const { refresh, library: existingLibrary, hasApiKey } = useApp();
+  const { refresh, library: existingLibrary, hasApiKey, profile } = useApp();
+  // After an upload: add its information to My Info? Asked once.
+  const [askImport, setAskImport] = useState<'ask' | 'reviewing' | 'answered'>('ask');
   // A new CV needs an original beside it; the very first upload is always the original.
   const asCv = use(searchParams).as === 'cv' && Boolean(existingLibrary);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -235,16 +239,44 @@ export default function UploadPage({ searchParams }: { searchParams: Promise<{ a
               {result.stats.bullets} bullets · {result.stats.skills} skills
             </span>
           </div>
-          <p className="mt-1 max-w-2xl text-sm text-subtle">
-            Next, add everything about you to My Info (your CV can be imported there in one click), then tailor a
-            CV for a job. You can compare our rebuild with your original under Original CV at any time.
-          </p>
+          {askImport !== 'answered' ? (
+            <Panel className="mt-4 flex flex-wrap items-center gap-3 border-emerald-500/30 p-4 text-sm">
+              <div className="min-w-0 flex-1">
+                <p className="font-medium">Add the information from this CV to My Info?</p>
+                <p className="mt-0.5 text-subtle">
+                  My Info is what tailoring picks from. You see every change before anything is saved.
+                </p>
+              </div>
+              <Button variant="primary" onClick={() => setAskImport('reviewing')}>
+                Yes, review it
+              </Button>
+              <Button variant="ghost" onClick={() => setAskImport('answered')}>
+                No thanks
+              </Button>
+            </Panel>
+          ) : (
+            <p className="mt-1 max-w-2xl text-sm text-subtle">
+              Next, tailor a CV for a job. You can compare our rebuild with your original under Original CV at any time.
+            </p>
+          )}
+          {askImport === 'reviewing' && (
+            <ImportFlow
+              current={normalizeProfile(profile)}
+              original={null}
+              start={[{ profile: profileFromLibrary(result.library, result.design), from: fileName || 'your CV' }]}
+              onApply={async (next) => {
+                await api.saveProfile(next);
+                await refresh();
+              }}
+              onDone={() => setAskImport('answered')}
+            />
+          )}
 
           <div className="mt-5 flex flex-wrap gap-2">
-            <Button variant="primary" onClick={() => router.push('/profile')}>
-              Go to My Info
+            <Button variant="primary" onClick={() => router.push('/tailor')}>
+              Tailor a CV
             </Button>
-            <Button onClick={() => router.push('/tailor')}>Tailor a CV</Button>
+            <Button onClick={() => router.push('/profile')}>Go to My Info</Button>
             <Button onClick={() => router.push('/design')}>Compare with the original</Button>
           </div>
 

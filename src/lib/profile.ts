@@ -1,6 +1,7 @@
 import { newId } from '@/lib/id';
 import type {
   CareerLibrary,
+  CvDocumentData,
   DesignSpec,
   LibraryBullet,
   LibraryEntry,
@@ -204,4 +205,51 @@ export function withProfile(
     .join('\n\n');
 
   return { library: { ...library, personal, entries, skillGroups, summaryVariants }, facts };
+}
+
+/**
+ * A CV's own content in My Info form - what that CV says, as printed: its
+ * details, summary, items by kind and skills. Sections of no kind My Info
+ * keeps (Additional information, Languages...) become facts, one per line.
+ */
+export function profileFromDocument(data: CvDocumentData, design: DesignSpec): Profile {
+  const out = emptyProfile();
+  out.personal = structuredClone(data.personal);
+  const facts: string[] = [];
+  for (const s of data.sections) {
+    if (s.hidden) continue;
+    const def = design.sections.find((d) => d.id === s.sectionId);
+    const title = s.title ?? def?.title ?? '';
+    const kind = kindOfType(def?.type ?? '');
+    if (def?.type === 'summary') {
+      if (s.summary?.trim()) out.summary = s.summary.trim();
+      continue;
+    }
+    for (const g of s.skillGroups) {
+      if (g.skills.length) out.skills = [...(out.skills ?? []), { id: newId(), category: g.category, skills: [...g.skills] }];
+    }
+    for (const e of s.entries) {
+      if (kind) {
+        out.entries.push({
+          id: newId(),
+          sectionId: kind,
+          title: e.title,
+          subtitle: e.subtitle,
+          location: e.location,
+          dateText: e.dateText,
+          note: e.note,
+          link: e.link,
+          links: (e.links ?? []).filter((l) => l.url || !l.blank).map(({ label, url }) => ({ label, url })),
+          bullets: e.bullets.filter((b) => b.trim()).map((text) => ({ id: newId(), text, tags: [] })),
+          tags: [],
+          archived: false,
+        });
+      } else {
+        const text = [e.title, e.subtitle, e.dateText, ...e.bullets].filter((x) => x?.trim()).join(' - ');
+        if (text) facts.push(`${title.charAt(0) + title.slice(1).toLowerCase()}: ${text}`);
+      }
+    }
+  }
+  out.about = facts.join('\n');
+  return out;
 }

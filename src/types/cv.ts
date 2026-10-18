@@ -635,6 +635,8 @@ export interface SavedCv {
   templateId?: string;
   /** The uploaded CV itself (or a copy of it): its content is that file's, not drawn from My Info. */
   uploaded?: boolean;
+  /** The owner has answered whether this uploaded CV's information goes into My Info. */
+  askedImport?: boolean;
   jobTitle?: string;
   company?: string;
   jobDescription: string;
