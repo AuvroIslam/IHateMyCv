@@ -239,9 +239,13 @@ ${SOURCE_NOTE}
 - Copy text VERBATIM: titles, dates ("Jun 2023 - Aug 2023"), bullets. Never rewrite, shorten, merge or improve. Leave out bullet glyphs. Rejoin words hyphenated across lines.
 - Sort every entry into a kind: experience (jobs, internships, teaching, research positions), projects, achievements (awards, competitions, scholarships, honours) or education (degrees, schools, courses).
 - ${ORG_TITLE_RULE} Otherwise the title is the line printed first or most prominently.
+- Dates never go in a title: a year or date range printed beside or above an entry (often right-aligned) is its dateText, even when it is only "2026".
+- Education: the degree is the title, the school or university the subtitle.
+- Every award, competition result or honour on its own line is its own entry, even in a long list under one heading ("2021 2nd Place, AWS GameDay"); its year is its dateText. A heading such as "International Awards" is not an entry.
 - Lines under an entry without a bullet glyph ("2nd Runners-Up", "CGPA: 3.63") are still its bullets.
+- Keep every entry the CV has, on every page; a long CV has many.
 - Anything that is not an entry or a skill (languages, certifications, volunteering, interests, publications) goes in about, one fact per line, in the CV's words.
-- Skills keep their categories and wording. Skills set out in a grid or in two columns put two categories on one printed line: tell them apart by x position and never join two category names into one.
+- Skills keep their categories and wording. A skill that wraps onto the next line is still one skill ("Pandas for data manipulation and Selenium for web scraping"); split only where the CV separates items (commas, bullets, new bullet lines). Skills set out in a grid or in two columns put two categories on one printed line: tell them apart by x position and never join two category names into one.
 - The LINKS lists are the only source of URLs. A row of link labels under an entry ("Github • Live Link") becomes that entry's links, matched by y; never a bullet. Never invent a URL.
 - Never invent anything. Leave out what the CV does not say.`;
 

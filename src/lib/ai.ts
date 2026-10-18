@@ -16,14 +16,16 @@ export type Task = 'cv_design' | 'cv_content' | 'cv_tags' | 'library_import' | '
  * with AI_MODEL_<TASK> in .env.local (AI_MODEL_TAILORING_PLAN=claude-opus-5-5).
  *
  * - cv_design: reads layout and typography off page images.
- * - cv_content, profile_import: copy every entry and bullet verbatim.
+ * - cv_content: copies every entry and bullet verbatim into the library.
+ * - profile_import: the same for other CVs; Haiku matched Sonnet and gpt-5.4
+ *   on four test CVs for about $0.003 a CV (see callOpenAiFree).
  * - tailoring_plan: judges which experience fits a job - the result users see.
  * - cv_tags, library_import: short, mechanical restructuring.
  */
 const CLAUDE_MODELS: Record<Task, string> = {
   cv_design: 'claude-sonnet-5-5',
   cv_content: 'claude-sonnet-5-5',
-  profile_import: 'claude-sonnet-5-5',
+  profile_import: 'claude-haiku-5-5',
   tailoring_plan: 'claude-sonnet-5-5',
   cv_chat: 'claude-sonnet-5-5',
   cv_tags: 'claude-haiku-5-5',
@@ -244,10 +246,10 @@ function isOutOfQuota(err: unknown): boolean {
 }
 
 /** One request on one key. Returns the result and the tokens it took. */
-async function openAiOnce<S extends z.ZodType>(apiKey: string, model: string, req: Request<S>) {
+async function openAiOnce<S extends z.ZodType>(apiKey: string, model: string, req: Request<S>, effort: Effort = req.effort) {
   const response = await new OpenAI({ apiKey }).responses.parse({
     model,
-    ...(supportsReasoning(model) ? { reasoning: { effort: req.effort } } : {}),
+    ...(supportsReasoning(model) ? { reasoning: { effort } } : {}),
     instructions: req.system,
     input: [
       {
@@ -309,41 +311,46 @@ async function callOpenAi<S extends z.ZodType>(model: string, req: Request<S>): 
 }
 
 /**
- * Best quality for free, then the cheapest billed: the main model while any
- * key has large-model allowance left, then the mini model on its (ten times
- * larger) allowance, and only when every allowance is spent, the mini model
- * billed - priced into the month like any other paid call.
+ * Best quality for free, then the best value billed. Measured on four CVs:
+ * gpt-5.4 and Claude Haiku read them equally well, while gpt-5.4-mini mixed
+ * up the columns of a two-column skills grid (wrong facts, not just style),
+ * and billed GPT costs about fifteen times Haiku's ~$0.003 a CV. So: gpt-5.4
+ * while any key has free allowance left, then Haiku; mini only without an
+ * Anthropic key - free while its allowance lasts, then billed.
  */
 async function callOpenAiFree<S extends z.ZodType>(req: Request<S>): Promise<z.infer<S>> {
   const keys = openAiKeys();
   let lastError: unknown;
+  // The mini model thinks one notch harder: at low effort it glued dates into
+  // titles and dropped parts of long CVs.
+  const harder: Record<Effort, Effort> = { low: 'medium', medium: 'high', high: 'high' };
   const attempt = async (apiKey: string, model: string, billed: boolean) => {
     const started = Date.now();
-    const r = await openAiOnce(apiKey, model, req);
+    const r = await openAiOnce(apiKey, model, req, tierOf(model) === 'small' ? harder[req.effort] : req.effort);
     await recordUsage(apiKey, tierOf(model), r.tokens);
     if (billed) await recordSpend(model, req.name, r.usage, Date.now() - started);
     return r.parsed;
   };
-  for (const model of [OPENAI_MODELS.main, OPENAI_MODELS.fast]) {
-    for (const apiKey of await freeKeys(keys, tierOf(model))) {
+  const tryKeys = async (list: string[], model: string, billed: boolean) => {
+    for (const apiKey of list) {
       try {
-        return await attempt(apiKey, model, false);
+        return { ok: true as const, value: await attempt(apiKey, model, billed) };
       } catch (err) {
         if (!isOutOfQuota(err)) throw err;
         await markExhausted(apiKey);
         lastError = err;
       }
     }
-  }
+    return { ok: false as const };
+  };
+
+  const main = await tryKeys(await freeKeys(keys, tierOf(OPENAI_MODELS.main)), OPENAI_MODELS.main, false);
+  if (main.ok) return main.value;
+  if (anthropicKey()) return callClaude(modelFor(req.name), req);
+  const mini = await tryKeys(await freeKeys(keys, tierOf(OPENAI_MODELS.fast)), OPENAI_MODELS.fast, false);
+  if (mini.ok) return mini.value;
   await assertBudget();
-  for (const apiKey of await usableKeys(keys)) {
-    try {
-      return await attempt(apiKey, OPENAI_MODELS.fast, true);
-    } catch (err) {
-      if (!isOutOfQuota(err)) throw err;
-      await markExhausted(apiKey);
-      lastError = err;
-    }
-  }
+  const paid = await tryKeys(await usableKeys(keys), OPENAI_MODELS.fast, true);
+  if (paid.ok) return paid.value;
   throw lastError ?? new AiOutputError('Every OpenAI key is out of quota today. Try again tomorrow.', 429);
 }
