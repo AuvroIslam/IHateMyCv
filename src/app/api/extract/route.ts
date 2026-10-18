@@ -16,8 +16,9 @@ import {
 } from '@/lib/prompts';
 import { contentSchema, designBodySchema, designPageSchema, tagsSchema, type ExtractionResult } from '@/lib/schemas';
 import { mutateStore, readStore, savePageBackgrounds, savePageImages, saveSourceFonts, saveSourceLayout } from '@/lib/store';
+import { MAX_TEMPLATES } from '@/lib/templates';
 import { workspaceId } from '@/lib/workspace';
-import type { SourceLayout, UploadedFont } from '@/types/cv';
+import type { SavedCv, SourceLayout, UploadedFont } from '@/types/cv';
 import { consume } from '@/lib/limits';
 
 export const maxDuration = 300;
@@ -34,6 +35,11 @@ interface ExtractBody {
   pdf?: string;
   /** Each page with its text erased, PNG base64, for the exact replica. */
   backgrounds?: { mediaType: string; data: string }[];
+  /**
+   * Keep this CV as a new CV with its own design (a template) instead of
+   * replacing the original: the original, its CVs and My Info stay as they are.
+   */
+  asTemplate?: boolean;
 }
 
 /** A text-free page render is a few hundred KB; this only stops something absurd. */
@@ -66,6 +72,12 @@ export async function POST(request: Request) {
     const body = (await request.json()) as ExtractBody;
     const textDump = body.textDump?.trim();
     if (!textDump) return jsonError('No text could be read from that file.');
+    // A template needs an original to sit beside; the very first upload is the original.
+    const current = await readStore();
+    const templateId = body.asTemplate && current.library && current.design ? newId() : undefined;
+    if (templateId && (current.templates ?? []).length >= MAX_TEMPLATES) {
+      return jsonError(`You can keep up to ${MAX_TEMPLATES} uploaded CVs besides your original. Delete one in My CVs first.`, 409);
+    }
     await consume('upload');
 
     const pageCount = Math.max(1, Math.round(body.pageCount ?? 1));
@@ -105,7 +117,7 @@ export async function POST(request: Request) {
     // While the library still matches the PDF word for word, remember how the
     // original broke each paragraph's lines.
     const library = attachSourceLines(normalized.library, layout);
-    const pageImages = await savePageImages(images);
+    const pageImages = await savePageImages(images, templateId);
 
     // The PDF's own fonts. Client ids are replaced so nothing from the request
     // ever becomes a file name.
@@ -121,7 +133,7 @@ export async function POST(request: Request) {
         bold: Boolean(f.bold),
         italic: Boolean(f.italic),
       }));
-    await saveSourceFonts(fonts);
+    await saveSourceFonts(fonts, templateId);
     // Runs name their font by the client's id; point them at the stored one.
     for (const page of layout?.pages ?? []) {
       for (const line of page.lines) {
@@ -134,48 +146,72 @@ export async function POST(request: Request) {
     }
     const backgrounds = await savePageBackgrounds(
       (body.backgrounds ?? []).filter((b) => typeof b.data === 'string' && b.data.length < MAX_BACKGROUND_B64).slice(0, 6),
+      templateId,
     );
     await saveSourceLayout(
       layout,
       typeof body.pdf === 'string' && body.pdf.length < MAX_PDF_B64 ? body.pdf : undefined,
+      templateId,
     );
     design.font.embedded = assignFaces(fonts, design);
     design.font.useEmbedded = design.font.embedded.length > 0;
 
     const uploadedAt = new Date().toISOString();
+    const source = {
+      fileName: body.fileName ?? 'cv.pdf',
+      uploadedAt,
+      pageCount,
+      textPreview: (body.rawText ?? '').slice(0, 4000),
+      pageImages,
+      backgrounds,
+    };
+    const stats = {
+      sections: design.sections.length,
+      entries: library.entries.length,
+      bullets: library.entries.reduce((n, e) => n + e.bullets.length, 0),
+      skills: library.skillGroups.reduce((n, g) => n + g.skills.length, 0),
+    };
+
+    if (templateId) {
+      // A new CV in its own design, beside everything else.
+      design.template = templateId;
+      const original = buildBaseDocument(library, design);
+      const cv: SavedCv = {
+        id: newId(),
+        name: source.fileName.replace(/\.[a-z0-9]+$/i, ''),
+        templateId,
+        uploaded: true,
+        jobDescription: '',
+        createdAt: uploadedAt,
+        updatedAt: uploadedAt,
+        data: original,
+        report: null,
+      };
+      await mutateStore((store) => {
+        store.templates = [...(store.templates ?? []), { id: templateId, design, library, original, source }];
+        store.cvs.unshift(cv);
+      });
+      return Response.json({ design, library, stats, cvId: cv.id });
+    }
+
     await mutateStore((store) => {
       store.design = design;
       store.library = library;
       // At this moment the library is exactly the original CV, so this is the
       // reference every later design check is compared against.
       store.original = buildBaseDocument(library, design);
-      store.source = {
-        fileName: body.fileName ?? 'cv.pdf',
-        uploadedAt,
-        pageCount,
-        textPreview: (body.rawText ?? '').slice(0, 4000),
-        pageImages,
-        backgrounds,
-      };
-      // The library was rebuilt from a new source document, so previously
-      // generated CVs reference entry ids that no longer exist.
-      store.cvs = [];
+      store.source = source;
+      // The library was rebuilt from a new source document, so CVs made in the
+      // original's design reference entry ids that no longer exist. CVs in
+      // their own templates are untouched.
+      store.cvs = store.cvs.filter((c) => c.templateId);
     });
 
     // Tagging outlives the request, so it takes this workspace along.
     const ws = await workspaceId();
     after(() => tagLibrary(uploadedAt, ws));
 
-    return Response.json({
-      design,
-      library,
-      stats: {
-        sections: design.sections.length,
-        entries: library.entries.length,
-        bullets: library.entries.reduce((n, e) => n + e.bullets.length, 0),
-        skills: library.skillGroups.reduce((n, g) => n + g.skills.length, 0),
-      },
-    });
+    return Response.json({ design, library, stats });
   } catch (err) {
     return handleRouteError(err);
   }

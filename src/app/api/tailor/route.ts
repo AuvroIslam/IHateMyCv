@@ -5,6 +5,7 @@ import { newId } from '@/lib/id';
 import { TAILOR_SYSTEM, tailorUserPrompt } from '@/lib/prompts';
 import { tailorSchema } from '@/lib/schemas';
 import { withProfile } from '@/lib/profile';
+import { designContext } from '@/lib/templates';
 import { mutateStore, readStore } from '@/lib/store';
 import type { SavedCv } from '@/types/cv';
 import { consume } from '@/lib/limits';
@@ -13,7 +14,7 @@ export const maxDuration = 300;
 
 export async function POST(request: Request) {
   try {
-    const { jobDescription } = (await request.json()) as { jobDescription?: string };
+    const { jobDescription, templateId } = (await request.json()) as { jobDescription?: string; templateId?: string | null };
     const jd = jobDescription?.trim();
     if (!jd) return jsonError('Paste a job description first.');
     if (jd.length < 80) {
@@ -22,16 +23,16 @@ export async function POST(request: Request) {
     if (jd.length > 20_000) return jsonError('That job description is too long. Paste just the posting itself.');
 
     const store = await readStore();
-    if (!store.library || !store.design) {
-      return jsonError('Upload a CV first so there is a Career Library to draw from.', 409);
-    }
+    // The design to follow: the original's, or a template's (another uploaded CV).
+    const ctx = designContext(store, templateId);
+    if (!ctx) return jsonError(templateId ? 'That CV design no longer exists.' : 'Upload a CV first.', templateId ? 404 : 409);
     await consume('tailor');
 
-    // The Profile's projects, jobs and achievements are candidates too.
-    const { library, facts } = withProfile(store.library, store.design, store.profile);
+    // My Info's projects, jobs and achievements are candidates too.
+    const { library, facts } = withProfile(ctx.library, ctx.design, store.profile);
     const plan = await generateStructured({
       system: TAILOR_SYSTEM,
-      user: tailorUserPrompt(library, store.design, jd, facts),
+      user: tailorUserPrompt(library, ctx.design, jd, facts),
       schema: tailorSchema,
       name: 'tailoring_plan',
       // Medium: on Claude Sonnet it ranks as well as Opus did (6 jobs across
@@ -39,7 +40,7 @@ export async function POST(request: Request) {
       effort: 'medium',
     });
 
-    const { data, report } = applyTailorPlan(library, store.design, plan);
+    const { data, report } = applyTailorPlan(library, ctx.design, plan);
     const now = new Date().toISOString();
 
     const cv: SavedCv = {
@@ -48,6 +49,7 @@ export async function POST(request: Request) {
       jobTitle: report.roleTitle,
       company: report.company,
       jobDescription: jd,
+      ...(ctx.template ? { templateId: ctx.template.id } : {}),
       createdAt: now,
       updatedAt: now,
       data,

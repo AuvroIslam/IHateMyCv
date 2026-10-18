@@ -42,8 +42,11 @@ export default function CvsPage() {
       if (!copyOf) router.push(`/cv/${cv.id}`);
     });
 
-  const remove = (id: string, name: string) => {
-    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+  const remove = (id: string, name: string, template?: string) => {
+    // The last CV in an uploaded design takes the design with it.
+    const last = template && cvs.filter((c) => c.template === template).length === 1;
+    const note = last ? ` Its design (${template}) will no longer be available when tailoring.` : '';
+    if (!confirm(`Delete "${name}"? This cannot be undone.${note}`)) return;
     void run(`del:${id}`, async () => {
       await api.deleteCv(id);
       await refresh();
@@ -56,7 +59,13 @@ export default function CvsPage() {
         + New CV
       </Button>
       {choosing && (
-        <Panel className="absolute right-0 z-20 mt-2 w-72 p-1 shadow-lg">
+        <Panel className="absolute right-0 z-20 mt-2 w-80 p-1 shadow-lg">
+          <Link href="/upload?as=cv" className="block rounded-md px-3 py-2 hover:bg-foreground/5">
+            <span className="block text-sm font-medium">Upload a CV</span>
+            <span className="block text-xs text-subtle">
+              Another CV file, kept exactly as it looks. Its design can then be used when tailoring.
+            </span>
+          </Link>
           <Link href="/tailor" className="block rounded-md px-3 py-2 hover:bg-foreground/5">
             <span className="block text-sm font-medium">Tailored for a job</span>
             <span className="block text-xs text-subtle">Paste a job posting; the best fit from My Info is picked.</span>
@@ -68,7 +77,7 @@ export default function CvsPage() {
             }}
             className="block w-full rounded-md px-3 py-2 text-left hover:bg-foreground/5"
           >
-            <span className="block text-sm font-medium">Copy of your original</span>
+            <span className="block text-sm font-medium">Copy of your original CV</span>
             <span className="block text-xs text-subtle">Your uploaded CV as it is, to change by chat or by hand.</span>
           </button>
         </Panel>
@@ -119,6 +128,7 @@ export default function CvsPage() {
                     <p className="truncate text-sm font-medium">{cv.name}</p>
                     <p className="text-xs text-subtle">
                       Updated <LocalDate iso={cv.updatedAt} withTime />
+                      {cv.template && <> · design from {cv.template}</>}
                     </p>
                   </div>
                   {cv.matchScore !== null && (
@@ -130,7 +140,7 @@ export default function CvsPage() {
                 <Button size="sm" variant="ghost" disabled={Boolean(busy)} onClick={() => void create(cv.id)}>
                   {busy === `copy:${cv.id}` ? <Spinner /> : 'Duplicate'}
                 </Button>
-                <Button size="sm" variant="danger" disabled={Boolean(busy)} onClick={() => remove(cv.id, cv.name)}>
+                <Button size="sm" variant="danger" disabled={Boolean(busy)} onClick={() => remove(cv.id, cv.name, cv.template)}>
                   {busy === `del:${cv.id}` ? <Spinner /> : 'Delete'}
                 </Button>
               </li>

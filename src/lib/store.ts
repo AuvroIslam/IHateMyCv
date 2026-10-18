@@ -22,11 +22,13 @@ export function mutateStore<T>(fn: (store: Store) => T | Promise<T>, ws?: string
 
 export const resetStore = () => impl().resetStore();
 export const saveSourceLayout: typeof files.saveSourceLayout = (...a) => impl().saveSourceLayout(...a);
-export const readSourceLayout = () => impl().readSourceLayout();
-export const readSourcePdf = () => impl().readSourcePdf();
+// File functions take an optional template id: absent, they work on the original's files.
+export const readSourceLayout = (template?: string) => impl().readSourceLayout(template);
+export const readSourcePdf = (template?: string) => impl().readSourcePdf(template);
 export const saveSourceFonts: typeof files.saveSourceFonts = (...a) => impl().saveSourceFonts(...a);
-export const readSourceFont = (id: string) => impl().readSourceFont(id);
+export const readSourceFont = (id: string, template?: string) => impl().readSourceFont(id, template);
 export const savePageImages: typeof files.savePageImages = (...a) => impl().savePageImages(...a);
-export const readPageImage = (page: number) => impl().readPageImage(page);
+export const readPageImage = (page: number, template?: string) => impl().readPageImage(page, template);
 export const savePageBackgrounds: typeof files.savePageBackgrounds = (...a) => impl().savePageBackgrounds(...a);
-export const readPageBackground = (page: number) => impl().readPageBackground(page);
+export const readPageBackground = (page: number, template?: string) => impl().readPageBackground(page, template);
+export const removeTemplateFiles = (template: string) => impl().removeTemplateFiles(template);

@@ -4,10 +4,10 @@ import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useApp } from '@/components/AppProvider';
 import CvPreview from '@/components/cv/CvPreview';
-import { useReplicaSource } from '@/components/cv/Replica';
+import { backgroundUrl, useReplicaSource } from '@/components/cv/Replica';
 import { ErrorNote, Spinner } from '@/components/ui/kit';
 import { api } from '@/lib/client-api';
-import type { CvDocumentData, DesignSpec } from '@/types/cv';
+import type { CvDocumentData, DesignSpec, SourceMeta } from '@/types/cv';
 
 /**
  * A bare page containing nothing but the document, so the browser's own
@@ -19,8 +19,12 @@ export default function PrintPage() {
   const [data, setData] = useState<CvDocumentData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [laidOut, setLaidOut] = useState(false);
-  const { originalDocument } = useApp();
-  const replica = useReplicaSource();
+  const { originalDocument, source: appSource } = useApp();
+  const [loaded, setLoaded] = useState(false);
+  const [gaveUp, setGaveUp] = useState(false);
+  // The design's own upload: the original, or the template this CV follows.
+  const [template, setTemplate] = useState<{ id: string; source: SourceMeta; original: CvDocumentData } | null>(null);
+  const replica = useReplicaSource(template);
 
   useEffect(() => {
     let cancelled = false;
@@ -29,6 +33,8 @@ export default function PrintPage() {
         const res = await api.getCv(id);
         if (cancelled) return;
         setDesign(res.design);
+        setTemplate(res.template);
+        setLoaded(true);
         setData(res.cv.data);
         document.title = res.cv.name || 'CV';
       } catch (err) {
@@ -40,8 +46,17 @@ export default function PrintPage() {
     };
   }, [id]);
 
+  // A CV with an exact copy prints the copy: wait for it (a few seconds at
+  // most - past that, the rebuild prints rather than nothing).
+  const expectsReplica = loaded && ((template ? template.source : appSource)?.backgrounds ?? 0) > 0;
   useEffect(() => {
-    if (!design || !data || !laidOut) return;
+    if (!expectsReplica || replica) return;
+    const t = setTimeout(() => setGaveUp(true), 6000);
+    return () => clearTimeout(t);
+  }, [expectsReplica, replica]);
+
+  useEffect(() => {
+    if (!design || !data || !laidOut || (expectsReplica && !replica && !gaveUp)) return;
     // Printing before the webfonts land would reflow the document mid-capture,
     // and pages are only final once measured with those fonts.
     let cancelled = false;
@@ -50,6 +65,19 @@ export default function PrintPage() {
         await document.fonts?.ready;
       } catch {
         // Font loading API is unavailable; the fallback stack is already applied.
+      }
+      // The copy's page backgrounds must be drawn before the capture.
+      if (replica) {
+        await Promise.all(
+          replica.layout.pages.map(
+            (_, i) =>
+              new Promise<void>((done) => {
+                const img = new Image();
+                img.onload = img.onerror = () => done();
+                img.src = backgroundUrl(replica, i);
+              }),
+          ),
+        );
       }
       // Two frames: one for pagination to settle after the fonts, one to paint.
       requestAnimationFrame(() =>
@@ -62,7 +90,7 @@ export default function PrintPage() {
     return () => {
       cancelled = true;
     };
-  }, [design, data, laidOut]);
+  }, [design, data, laidOut, expectsReplica, replica, gaveUp]);
 
   if (error) {
     return (
@@ -89,7 +117,7 @@ export default function PrintPage() {
       <CvPreview
         design={design}
         data={data}
-        replica={{ source: replica, original: originalDocument }}
+        replica={{ source: replica, original: template ? template.original : originalDocument }}
         onPaginated={() => setLaidOut(true)}
       />
     </div>

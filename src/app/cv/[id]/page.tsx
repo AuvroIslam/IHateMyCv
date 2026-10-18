@@ -2,22 +2,28 @@
 
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '@/components/AppProvider';
 import CvChat from '@/components/cv/CvChat';
 import CvEditor from '@/components/cv/CvEditor';
 import CvPreview from '@/components/cv/CvPreview';
 import { useReplicaSource } from '@/components/cv/Replica';
 import { Badge, Button, ErrorNote, Input, Panel, Spinner, cx } from '@/components/ui/kit';
+import { autoAlign } from '@/lib/auto-align';
 import { api } from '@/lib/client-api';
 import { withProfile } from '@/lib/profile';
-import type { CareerLibrary, ChatTurn, CvDocumentData, DesignSpec, SavedCv } from '@/types/cv';
+import type { CareerLibrary, ChatTurn, CvDocumentData, DesignSpec, SavedCv, SourceMeta } from '@/types/cv';
 
 export default function CvPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { refresh, source, originalDocument, profile } = useApp();
-  const replica = useReplicaSource();
+  // The design's own upload: the original, or the template this CV follows.
+  const [template, setTemplate] = useState<{ id: string; source: SourceMeta; original: CvDocumentData } | null>(null);
+  const replica = useReplicaSource(template);
+  const original = template ? template.original : originalDocument;
+  const pageSource = template ? template.source : source;
+  const [fitting, setFitting] = useState(false);
 
   const [cv, setCv] = useState<SavedCv | null>(null);
   const [design, setDesign] = useState<DesignSpec | null>(null);
@@ -44,6 +50,7 @@ export default function CvPage() {
         if (cancelled) return;
         setCv(res.cv);
         setDesign(res.design);
+        setTemplate(res.template);
         setLibrary(res.library);
         setData(res.cv.data);
         setName(res.cv.name);
@@ -58,6 +65,27 @@ export default function CvPage() {
       cancelled = true;
     };
   }, [id]);
+
+  // A template's design is fitted to its CV's measured spacing once, the first
+  // time a CV in it is opened (the original's is fitted on the Original CV page).
+  const fitTried = useRef(false);
+  useEffect(() => {
+    if (!template || !design || design.aligned || fitTried.current) return;
+    fitTried.current = true;
+    setFitting(true);
+    (async () => {
+      try {
+        const { layout } = await api.getSourceLayout(template.id);
+        const { design: fitted } = await autoAlign(design, template.original, layout);
+        await api.saveTemplateDesign(template.id, fitted);
+        setDesign({ ...fitted, template: template.id });
+      } catch {
+        // Unfitted, it still works; the exact copy does not depend on it.
+      } finally {
+        setFitting(false);
+      }
+    })();
+  }, [template, design]);
 
   const dirty = useMemo(
     () => Boolean(cv && data && (JSON.stringify(cv.data) !== JSON.stringify(data) || cv.name !== name)),
@@ -166,12 +194,17 @@ export default function CvPage() {
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px]">
         <div className="min-w-0 rounded-lg bg-foreground/5 p-5">
+          {fitting && (
+            <p className="no-print mb-3 flex items-center gap-2 text-xs text-subtle">
+              <Spinner /> Fitting the design to this CV&apos;s spacing (first time only)…
+            </p>
+          )}
           <CvPreview
             design={design}
             data={data}
-            targetPages={source?.pageCount}
+            targetPages={pageSource?.pageCount}
             onPaginated={setPageCount}
-            replica={{ source: replica, original: originalDocument }}
+            replica={{ source: replica, original }}
           />
         </div>
 
@@ -203,7 +236,7 @@ export default function CvPage() {
                 cvId={id}
                 data={data}
                 history={chat}
-                pages={{ now: pageCount, original: source?.pageCount }}
+                pages={{ now: pageCount, original: pageSource?.pageCount }}
                 hasJob={Boolean(cv.jobDescription?.trim())}
                 onLiveData={setData}
                 onTurnComplete={saveTurn}

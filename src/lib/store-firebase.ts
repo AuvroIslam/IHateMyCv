@@ -21,6 +21,12 @@ const MAX_DOC = 900_000;
 
 const userDoc = (uid: string) => db().collection('users').doc(uid);
 const cvsOf = (uid: string) => userDoc(uid).collection('cvs');
+/** A template's files sit under templates/<id>/; ids are generated server-side and checked here. */
+const TEMPLATE_ID = /^[a-z0-9]{6,32}$/;
+const under = (template?: string) => {
+  if (template && !TEMPLATE_ID.test(template)) throw new Error('Bad template id.');
+  return template ? `templates/${template}/` : '';
+};
 const fileOf = (uid: string, name: string) => bucket().file(`users/${uid}/${name}`);
 
 interface Loaded {
@@ -127,76 +133,87 @@ async function removePrefix(uid: string, prefix: string) {
   await bucket().deleteFiles({ prefix: `users/${uid}/${prefix}` });
 }
 
-export async function saveSourceLayout(layout: SourceLayout | null, pdfBase64?: string) {
+export async function saveSourceLayout(layout: SourceLayout | null, pdfBase64?: string, template?: string) {
   const uid = await workspaceId();
+  const at = under(template);
   await Promise.all([
     layout
-      ? save(uid, 'source-layout.json', JSON.stringify(layout), 'application/json')
-      : fileOf(uid, 'source-layout.json').delete({ ignoreNotFound: true }),
+      ? save(uid, `${at}source-layout.json`, JSON.stringify(layout), 'application/json')
+      : fileOf(uid, `${at}source-layout.json`).delete({ ignoreNotFound: true }),
     pdfBase64
-      ? save(uid, 'source.pdf', Buffer.from(pdfBase64, 'base64'), 'application/pdf')
-      : fileOf(uid, 'source.pdf').delete({ ignoreNotFound: true }),
+      ? save(uid, `${at}source.pdf`, Buffer.from(pdfBase64, 'base64'), 'application/pdf')
+      : fileOf(uid, `${at}source.pdf`).delete({ ignoreNotFound: true }),
   ]);
 }
 
-export async function readSourceLayout(): Promise<SourceLayout | null> {
-  const data = await read(await workspaceId(), 'source-layout.json');
+export async function readSourceLayout(template?: string): Promise<SourceLayout | null> {
+  const data = await read(await workspaceId(), `${under(template)}source-layout.json`);
   return data ? (JSON.parse(data.toString('utf8')) as SourceLayout) : null;
 }
 
-export async function readSourcePdf(): Promise<Buffer | null> {
-  return read(await workspaceId(), 'source.pdf');
+export async function readSourcePdf(template?: string): Promise<Buffer | null> {
+  return read(await workspaceId(), `${under(template)}source.pdf`);
+}
+
+/** Deletes a template's files. */
+export async function removeTemplateFiles(template: string) {
+  if (!template) return; // never the whole folder
+  const uid = await workspaceId();
+  await removePrefix(uid, under(template));
 }
 
 const FONT_ID = /^[a-z0-9]{6,32}$/;
 
 /** Replaces the stored fonts. Ids are generated server-side, never trusted from input. */
-export async function saveSourceFonts(fonts: { id: string; format: 'otf' | 'ttf'; data: string }[]) {
+export async function saveSourceFonts(fonts: { id: string; format: 'otf' | 'ttf'; data: string }[], template?: string) {
   const uid = await workspaceId();
-  await removePrefix(uid, 'source-fonts/');
+  const at = under(template);
+  await removePrefix(uid, `${at}source-fonts/`);
   await Promise.all(
     fonts.map((f) =>
-      save(uid, `source-fonts/${f.id}.${f.format}`, Buffer.from(f.data, 'base64'), f.format === 'otf' ? 'font/otf' : 'font/ttf'),
+      save(uid, `${at}source-fonts/${f.id}.${f.format}`, Buffer.from(f.data, 'base64'), f.format === 'otf' ? 'font/otf' : 'font/ttf'),
     ),
   );
 }
 
-export async function readSourceFont(id: string): Promise<{ data: Buffer; format: 'otf' | 'ttf' } | null> {
+export async function readSourceFont(id: string, template?: string): Promise<{ data: Buffer; format: 'otf' | 'ttf' } | null> {
   if (!FONT_ID.test(id)) return null;
   const uid = await workspaceId();
   for (const format of ['otf', 'ttf'] as const) {
-    const data = await read(uid, `source-fonts/${id}.${format}`);
+    const data = await read(uid, `${under(template)}source-fonts/${id}.${format}`);
     if (data) return { data, format };
   }
   return null;
 }
 
 /** Replaces the stored renders. Returns how many were written. */
-export async function savePageImages(images: { data: string }[]): Promise<number> {
+export async function savePageImages(images: { data: string }[], template?: string): Promise<number> {
   const uid = await workspaceId();
-  await removePrefix(uid, 'source-pages/');
+  const at = under(template);
+  await removePrefix(uid, `${at}source-pages/`);
   await Promise.all(
-    images.map((img, i) => save(uid, `source-pages/page-${i + 1}.jpg`, Buffer.from(img.data, 'base64'), 'image/jpeg')),
+    images.map((img, i) => save(uid, `${at}source-pages/page-${i + 1}.jpg`, Buffer.from(img.data, 'base64'), 'image/jpeg')),
   );
   return images.length;
 }
 
-export async function readPageImage(page: number): Promise<Buffer | null> {
+export async function readPageImage(page: number, template?: string): Promise<Buffer | null> {
   if (!Number.isInteger(page) || page < 1) return null;
-  return read(await workspaceId(), `source-pages/page-${page}.jpg`);
+  return read(await workspaceId(), `${under(template)}source-pages/page-${page}.jpg`);
 }
 
 /** Replaces the page backgrounds (the original with its text erased). */
-export async function savePageBackgrounds(images: { data: string }[]): Promise<number> {
+export async function savePageBackgrounds(images: { data: string }[], template?: string): Promise<number> {
   const uid = await workspaceId();
-  await removePrefix(uid, 'source-backgrounds/');
+  const at = under(template);
+  await removePrefix(uid, `${at}source-backgrounds/`);
   await Promise.all(
-    images.map((img, i) => save(uid, `source-backgrounds/page-${i + 1}.png`, Buffer.from(img.data, 'base64'), 'image/png')),
+    images.map((img, i) => save(uid, `${at}source-backgrounds/page-${i + 1}.png`, Buffer.from(img.data, 'base64'), 'image/png')),
   );
   return images.length;
 }
 
-export async function readPageBackground(page: number): Promise<Buffer | null> {
+export async function readPageBackground(page: number, template?: string): Promise<Buffer | null> {
   if (!Number.isInteger(page) || page < 1) return null;
-  return read(await workspaceId(), `source-backgrounds/page-${page}.png`);
+  return read(await workspaceId(), `${under(template)}source-backgrounds/page-${page}.png`);
 }

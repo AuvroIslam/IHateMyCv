@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { use, useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from '@/components/AppProvider';
 import CvPreview from '@/components/cv/CvPreview';
 import { Button, ErrorNote, Panel, Spinner, cx } from '@/components/ui/kit';
@@ -40,9 +40,16 @@ function ExtractingNote() {
   );
 }
 
-export default function UploadPage() {
+/**
+ * Uploading a CV. Normally it becomes the original - the design CVs follow and
+ * the content My Info starts from. With ?as=cv (from My CVs) it is kept as a
+ * new CV in its own design instead, leaving the original as it is.
+ */
+export default function UploadPage({ searchParams }: { searchParams: Promise<{ as?: string | string[] }> }) {
   const router = useRouter();
   const { refresh, library: existingLibrary, hasApiKey } = useApp();
+  // A new CV needs an original beside it; the very first upload is always the original.
+  const asCv = use(searchParams).as === 'cv' && Boolean(existingLibrary);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [stage, setStage] = useState<Stage>('idle');
@@ -80,7 +87,13 @@ export default function UploadPage() {
           layout: parsed.layout,
           backgrounds: parsed.backgrounds,
           pdf: parsed.kind === 'pdf' ? toBase64(new Uint8Array(await file.arrayBuffer())) : undefined,
+          asTemplate: asCv,
         });
+        if (asCv && extracted.cvId) {
+          await refresh();
+          router.push(`/cv/${extracted.cvId}`);
+          return;
+        }
 
         setResult(extracted);
         setStage('done');
@@ -90,17 +103,18 @@ export default function UploadPage() {
         setError(err instanceof Error ? err.message : 'Could not read that file.');
       }
     },
-    [refresh],
+    [refresh, asCv, router],
   );
 
   const busy = stage === 'parsing' || stage === 'extracting';
 
   return (
     <div className="mx-auto max-w-5xl px-5 py-10">
-      <h1 className="text-2xl font-semibold tracking-tight">Upload your CV</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">{asCv ? 'Upload a CV' : 'Upload your CV'}</h1>
       <p className="mt-2 max-w-2xl text-sm text-subtle">
-        We read it once: the design is captured so it can be reproduced exactly, and the content is
-        broken into components you can reuse. Your original layout is never redesigned.
+        {asCv
+          ? 'It is added to My CVs exactly as it looks, in its own design, to edit by chat or by hand. Its design also becomes one you can choose when tailoring. Your original CV stays as it is.'
+          : 'We read it once: the design is captured so it can be reproduced exactly, and the content is broken into components you can reuse. Your original layout is never redesigned.'}
       </p>
 
       {!hasApiKey && (
@@ -114,16 +128,20 @@ export default function UploadPage() {
         </Panel>
       )}
 
-      {existingLibrary && stage === 'idle' && (
+      {existingLibrary && !asCv && stage === 'idle' && (
         <Panel className="mt-6 border-amber-500/40 p-4 text-sm">
           <p className="font-medium">You already have an original CV.</p>
           <p className="mt-1 text-subtle">
-            Uploading a new one replaces the design every CV uses and clears the CVs made so far. My Info is
-            kept. To only add information from another CV, use{' '}
+            Uploading a new one replaces it and clears the CVs made in its design. My Info, and CVs you added in
+            their own design, are kept. To keep this file as an extra CV instead, use{' '}
+            <Link href="/upload?as=cv" className="underline">
+              Upload a CV
+            </Link>
+            ; to only add its information, use{' '}
             <Link href="/profile" className="underline">
               Import from CVs in My Info
-            </Link>{' '}
-            instead.
+            </Link>
+            .
           </p>
         </Panel>
       )}

@@ -63,7 +63,7 @@ export function embeddedFontCss(design: DesignSpec): string {
       (f) =>
         `@font-face { font-family: "${EMBEDDED_FAMILY[f.role]}"; ` +
         `font-weight: ${f.weight === 'bold' ? '600 900' : '100 599'}; font-style: ${f.style}; ` +
-        `font-display: block; src: url("/api/source/fonts/${f.id}"); }`,
+        `font-display: block; src: url("/api/source/fonts/${f.id}${design.template ? `?template=${design.template}` : ''}"); }`,
     )
     .join('\n');
 }

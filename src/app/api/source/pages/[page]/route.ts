@@ -2,10 +2,11 @@ import { handleRouteError, jsonError } from '@/lib/api';
 import { readPageImage } from '@/lib/store';
 
 /** Serves a render of the originally uploaded CV, for design comparison. */
-export async function GET(_request: Request, context: RouteContext<'/api/source/pages/[page]'>) {
+export async function GET(request: Request, context: RouteContext<'/api/source/pages/[page]'>) {
   try {
     const { page } = await context.params;
-    const image = await readPageImage(Number(page));
+    const template = new URL(request.url).searchParams.get('template') || undefined;
+    const image = await readPageImage(Number(page), template);
     if (!image) return jsonError('No render of that page was kept.', 404);
     return new Response(new Uint8Array(image), {
       headers: {

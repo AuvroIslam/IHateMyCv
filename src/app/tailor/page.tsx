@@ -4,13 +4,15 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useApp } from '@/components/AppProvider';
-import { Button, EmptyState, ErrorNote, Panel, Spinner, Textarea } from '@/components/ui/kit';
+import { Button, EmptyState, ErrorNote, Panel, Spinner, Textarea, cx } from '@/components/ui/kit';
 import { api } from '@/lib/client-api';
 
 export default function TailorPage() {
   const router = useRouter();
-  const { library, design, loading, refresh } = useApp();
+  const { library, design, loading, refresh, templates } = useApp();
   const [jd, setJd] = useState('');
+  /** The uploaded CV whose design to follow; null for the original's. */
+  const [templateId, setTemplateId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,7 +44,7 @@ export default function TailorPage() {
     setBusy(true);
     setError(null);
     try {
-      const { cv } = await api.tailor(jd);
+      const { cv } = await api.tailor(jd, templateId);
       await refresh();
       router.push(`/cv/${cv.id}`);
     } catch (err) {
@@ -58,8 +60,39 @@ export default function TailorPage() {
       <h1 className="text-2xl font-semibold tracking-tight">Tailor a CV</h1>
       <p className="mt-2 text-sm text-subtle">
         Paste a job posting. The AI picks the jobs, projects and skills from My Info that fit it best and lays
-        them out in your original CV&apos;s design. You can then fine-tune it by chat.
+        them out in the design you choose. You can then fine-tune it by chat.
       </p>
+
+      {templates.length > 1 && (
+        <div className="mt-6">
+          <p className="text-sm font-medium">Follow the design of</p>
+          <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {templates.map((t) => {
+              const chosen = t.id === templateId;
+              const thumb = `/api/source/pages/1?v=${encodeURIComponent(t.uploadedAt)}${t.id ? `&template=${t.id}` : ''}`;
+              return (
+                <button
+                  key={t.id ?? 'original'}
+                  type="button"
+                  onClick={() => setTemplateId(t.id)}
+                  disabled={busy}
+                  className={cx(
+                    'overflow-hidden rounded-lg border text-left transition-colors',
+                    chosen ? 'border-foreground ring-1 ring-foreground' : 'border-line hover:border-foreground/40',
+                  )}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element -- a page render served from our own API. */}
+                  <img src={thumb} alt="" className="aspect-[1/1.3] w-full bg-white object-cover object-top" />
+                  <span className="block truncate px-2 pt-1.5 text-xs font-medium">{t.fileName}</span>
+                  <span className="block px-2 pb-1.5 text-[11px] text-subtle">
+                    {t.id ? 'Uploaded CV' : 'Your original'} · {t.pageCount} page{t.pageCount === 1 ? '' : 's'}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <Textarea
         rows={16}

@@ -4,7 +4,7 @@ import { type CSSProperties, useEffect, useMemo, useState } from 'react';
 import { useApp } from '@/components/AppProvider';
 import { api } from '@/lib/client-api';
 import { fontStack } from '@/lib/fonts';
-import type { CvDocumentData, DesignSpec, SourceLayout } from '@/types/cv';
+import type { CvDocumentData, DesignSpec, SourceLayout, SourceMeta } from '@/types/cv';
 
 /**
  * The exact replica: the original PDF's own text, drawn where the PDF drew
@@ -25,31 +25,46 @@ export interface ReplicaSource {
   version: string;
   /** Pages with a background; the replica needs one per page. */
   backgrounds: number;
+  /** The template whose files these are; absent for the original's. */
+  template?: string;
 }
 
-/** The replica's inputs for the current upload, once loaded; null when this upload has none. */
-export function useReplicaSource(): ReplicaSource | null {
-  const { source } = useApp();
-  const [layout, setLayout] = useState<{ version: string; layout: SourceLayout } | null>(null);
+/**
+ * The replica's inputs, once loaded; null when that upload has none. For the
+ * original's design by default, or for a template (another uploaded CV).
+ */
+export function useReplicaSource(template?: { id: string; source: SourceMeta } | null): ReplicaSource | null {
+  const app = useApp();
+  const source = template ? template.source : app.source;
+  const templateId = template?.id;
+  const [layout, setLayout] = useState<{ key: string; layout: SourceLayout } | null>(null);
   const version = source?.uploadedAt ?? '';
   const backgrounds = source?.backgrounds ?? 0;
+  const key = `${templateId ?? ''}@${version}`;
   useEffect(() => {
     if (!backgrounds) return;
     let cancelled = false;
     api
-      .getSourceLayout()
-      .then((r) => !cancelled && setLayout({ version, layout: r.layout }))
+      .getSourceLayout(templateId)
+      .then((r) => !cancelled && setLayout({ key, layout: r.layout }))
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, [version, backgrounds]);
+  }, [key, templateId, backgrounds]);
   return useMemo(() => {
-    if (!backgrounds || !layout || layout.version !== version) return null;
+    if (!backgrounds || !layout || layout.key !== key) return null;
     if (!layout.layout.pages.length || layout.layout.pages.length > backgrounds) return null;
-    return { layout: layout.layout, version, backgrounds };
-  }, [layout, version, backgrounds]);
+    return { layout: layout.layout, version, backgrounds, ...(templateId ? { template: templateId } : {}) };
+  }, [layout, key, version, backgrounds, templateId]);
 }
+
+/** The query that points a source URL at a template's files. */
+const templateQuery = (source: ReplicaSource) => (source.template ? `&template=${source.template}` : '');
+
+/** A page's text-free background (0-based page index). */
+export const backgroundUrl = (source: ReplicaSource, index: number) =>
+  `/api/source/backgrounds/${index + 1}?v=${encodeURIComponent(source.version)}${templateQuery(source)}`;
 
 const faceFamily = (id: string) => `cv-face-${id}`;
 const MM_TO_PT = 72 / 25.4;
@@ -64,7 +79,7 @@ export function replicaFontCss(source: ReplicaSource): string {
         // Each face is a family of its own, weight-agnostic: the file already is
         // the bold or italic cut, and the browser must not embolden it again.
         `@font-face { font-family: "${faceFamily(id)}"; font-weight: 1 1000; font-style: normal; ` +
-        `font-display: block; src: url("/api/source/fonts/${id}?v=${encodeURIComponent(source.version)}"); }`,
+        `font-display: block; src: url("/api/source/fonts/${id}?v=${encodeURIComponent(source.version)}${templateQuery(source)}"); }`,
     )
     .join('\n');
 }
@@ -154,7 +169,7 @@ function ReplicaSvg({
   return (
     <svg viewBox={`0 ${top} ${page.width} ${bottom - top}`} preserveAspectRatio="none" style={style}>
       <image
-        href={`/api/source/backgrounds/${index + 1}?v=${encodeURIComponent(source.version)}`}
+        href={backgroundUrl(source, index)}
         x={0}
         y={0}
         width={page.width}

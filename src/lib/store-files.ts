@@ -11,14 +11,28 @@ import { filesDir, workspaceId } from './workspace';
 
 const dirOf = async (ws?: string) => filesDir(ws ?? (await workspaceId()));
 
-const files = (dir: string) => ({
-  store: path.join(dir, 'store.json'),
-  pages: path.join(dir, 'source-pages'),
-  fonts: path.join(dir, 'source-fonts'),
-  layout: path.join(dir, 'source-layout.json'),
-  pdf: path.join(dir, 'source.pdf'),
-  backgrounds: path.join(dir, 'source-backgrounds'),
-});
+/** A template's files sit in a folder of their own; ids are generated server-side and checked here. */
+const TEMPLATE_ID = /^[a-z0-9]{6,32}$/;
+
+const files = (dir: string, template?: string) => {
+  if (template && !TEMPLATE_ID.test(template)) throw new Error('Bad template id.');
+  const base = template ? path.join(dir, 'templates', template) : dir;
+  return {
+    store: path.join(dir, 'store.json'),
+    base,
+    pages: path.join(base, 'source-pages'),
+    fonts: path.join(base, 'source-fonts'),
+    layout: path.join(base, 'source-layout.json'),
+    pdf: path.join(base, 'source.pdf'),
+    backgrounds: path.join(base, 'source-backgrounds'),
+  };
+};
+
+/** Deletes a template's files. */
+export async function removeTemplateFiles(template: string) {
+  const at = files(await dirOf(), template);
+  await fs.rm(at.base, { recursive: true, force: true });
+}
 
 const EMPTY: Store = {
   version: 1,
@@ -91,19 +105,18 @@ export async function resetStore(): Promise<void> {
 // ---------------------------------------------------------------------------
 // The original's geometry (for auto-align) and the file itself.
 
-export async function saveSourceLayout(layout: SourceLayout | null, pdfBase64?: string) {
-  const dir = await dirOf();
-  const at = files(dir);
-  await fs.mkdir(dir, { recursive: true });
+export async function saveSourceLayout(layout: SourceLayout | null, pdfBase64?: string, template?: string) {
+  const at = files(await dirOf(), template);
+  await fs.mkdir(at.base, { recursive: true });
   if (layout) await fs.writeFile(at.layout, JSON.stringify(layout), 'utf8');
   else await fs.rm(at.layout, { force: true });
   if (pdfBase64) await fs.writeFile(at.pdf, Buffer.from(pdfBase64, 'base64'));
   else await fs.rm(at.pdf, { force: true });
 }
 
-export async function readSourceLayout(): Promise<SourceLayout | null> {
+export async function readSourceLayout(template?: string): Promise<SourceLayout | null> {
   try {
-    return JSON.parse(await fs.readFile(/*turbopackIgnore: true*/ files(await dirOf()).layout, 'utf8')) as SourceLayout;
+    return JSON.parse(await fs.readFile(/*turbopackIgnore: true*/ files(await dirOf(), template).layout, 'utf8')) as SourceLayout;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw err;
@@ -111,9 +124,9 @@ export async function readSourceLayout(): Promise<SourceLayout | null> {
 }
 
 /** The originally uploaded PDF, or null when none was kept. */
-export async function readSourcePdf(): Promise<Buffer | null> {
+export async function readSourcePdf(template?: string): Promise<Buffer | null> {
   try {
-    return await fs.readFile(/*turbopackIgnore: true*/ files(await dirOf()).pdf);
+    return await fs.readFile(/*turbopackIgnore: true*/ files(await dirOf(), template).pdf);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw err;
@@ -126,8 +139,8 @@ export async function readSourcePdf(): Promise<Buffer | null> {
 const FONT_ID = /^[a-z0-9]{6,32}$/;
 
 /** Replaces the stored fonts. Ids are generated server-side, never trusted from input. */
-export async function saveSourceFonts(fonts: { id: string; format: 'otf' | 'ttf'; data: string }[]) {
-  const dir = files(await dirOf()).fonts;
+export async function saveSourceFonts(fonts: { id: string; format: 'otf' | 'ttf'; data: string }[], template?: string) {
+  const dir = files(await dirOf(), template).fonts;
   await fs.rm(dir, { recursive: true, force: true });
   if (fonts.length === 0) return;
   await fs.mkdir(dir, { recursive: true });
@@ -136,9 +149,9 @@ export async function saveSourceFonts(fonts: { id: string; format: 'otf' | 'ttf'
   );
 }
 
-export async function readSourceFont(id: string): Promise<{ data: Buffer; format: 'otf' | 'ttf' } | null> {
+export async function readSourceFont(id: string, template?: string): Promise<{ data: Buffer; format: 'otf' | 'ttf' } | null> {
   if (!FONT_ID.test(id)) return null;
-  const dir = files(await dirOf()).fonts;
+  const dir = files(await dirOf(), template).fonts;
   for (const format of ['otf', 'ttf'] as const) {
     try {
       return { data: await fs.readFile(path.join(/*turbopackIgnore: true*/ dir, `${id}.${format}`)), format };
@@ -154,8 +167,8 @@ export async function readSourceFont(id: string): Promise<{ data: Buffer; format
 // only ever read one at a time by the design comparison view.
 
 /** Replaces the stored renders. Returns how many were written. */
-export async function savePageImages(images: { data: string }[]): Promise<number> {
-  const dir = files(await dirOf()).pages;
+export async function savePageImages(images: { data: string }[], template?: string): Promise<number> {
+  const dir = files(await dirOf(), template).pages;
   await fs.rm(dir, { recursive: true, force: true });
   if (images.length === 0) return 0;
   await fs.mkdir(dir, { recursive: true });
@@ -165,10 +178,10 @@ export async function savePageImages(images: { data: string }[]): Promise<number
   return images.length;
 }
 
-export async function readPageImage(page: number): Promise<Buffer | null> {
+export async function readPageImage(page: number, template?: string): Promise<Buffer | null> {
   if (!Number.isInteger(page) || page < 1) return null;
   try {
-    return await fs.readFile(path.join(files(await dirOf()).pages, `page-${page}.jpg`));
+    return await fs.readFile(path.join(files(await dirOf(), template).pages, `page-${page}.jpg`));
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw err;
@@ -178,8 +191,8 @@ export async function readPageImage(page: number): Promise<Buffer | null> {
 // ---------------------------------------------------------------------------
 // Page backgrounds (the original with its text erased) for the exact replica.
 
-export async function savePageBackgrounds(images: { data: string }[]): Promise<number> {
-  const dir = files(await dirOf()).backgrounds;
+export async function savePageBackgrounds(images: { data: string }[], template?: string): Promise<number> {
+  const dir = files(await dirOf(), template).backgrounds;
   await fs.rm(dir, { recursive: true, force: true });
   if (images.length === 0) return 0;
   await fs.mkdir(dir, { recursive: true });
@@ -189,10 +202,10 @@ export async function savePageBackgrounds(images: { data: string }[]): Promise<n
   return images.length;
 }
 
-export async function readPageBackground(page: number): Promise<Buffer | null> {
+export async function readPageBackground(page: number, template?: string): Promise<Buffer | null> {
   if (!Number.isInteger(page) || page < 1) return null;
   try {
-    return await fs.readFile(path.join(/*turbopackIgnore: true*/ files(await dirOf()).backgrounds, `page-${page}.png`));
+    return await fs.readFile(path.join(/*turbopackIgnore: true*/ files(await dirOf(), template).backgrounds, `page-${page}.png`));
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw err;

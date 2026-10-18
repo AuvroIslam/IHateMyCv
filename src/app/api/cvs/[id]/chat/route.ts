@@ -3,6 +3,7 @@ import { assertBudget, claudeClient, modelFor, provider, recordClaudeUsage } fro
 import { handleRouteError, jsonError } from '@/lib/api';
 import { CHAT_SYSTEM, applyEdit, toolDefinitions, turnPrompt, viewDoc, type ChatTurn } from '@/lib/cv-chat';
 import { withProfile } from '@/lib/profile';
+import { contextOf } from '@/lib/templates';
 import { readStore } from '@/lib/store';
 import type { CvDocumentData } from '@/types/cv';
 import { consume } from '@/lib/limits';
@@ -39,15 +40,15 @@ export async function POST(request: Request, context: RouteContext<'/api/cvs/[id
     const store = await readStore();
     const cv = store.cvs.find((c) => c.id === id);
     if (!cv) return jsonError('CV not found.', 404);
-    if (!store.design) return jsonError('Upload a CV first.', 409);
+    // The CV's own design: the original's, or the template it follows.
+    const ctx = contextOf(store, cv);
+    if (!ctx) return jsonError('Upload a CV first.', 409);
     await assertBudget();
     await consume('chat');
 
-    const design = store.design;
+    const design = ctx.design;
     // The Profile's items join the library as entries the chat can bring in.
-    const { library, facts } = store.library
-      ? withProfile(store.library, design, store.profile)
-      : { library: null, facts: '' };
+    const { library, facts } = withProfile(ctx.library, design, store.profile);
     const working: CvDocumentData = structuredClone(body.data ?? cv.data);
     const model = modelFor('cv_chat');
     const client = claudeClient();

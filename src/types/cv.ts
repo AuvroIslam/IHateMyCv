@@ -351,6 +351,8 @@ export interface DesignSpec {
   sections: SectionDef[];
   /** Set once spacing has been fitted to the original's measured positions. */
   aligned: boolean;
+  /** The template this design belongs to, when it is not the original's: its files are kept under this id. */
+  template?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -625,6 +627,10 @@ export interface ChatTurn {
 export interface SavedCv {
   id: string;
   name: string;
+  /** The template (another uploaded CV) whose design it follows; absent for the original's. */
+  templateId?: string;
+  /** The uploaded CV itself (or a copy of it): its content is that file's, not drawn from My Info. */
+  uploaded?: boolean;
   jobTitle?: string;
   company?: string;
   jobDescription: string;
@@ -673,9 +679,34 @@ export interface Profile {
   skills?: ProfileSkills[];
 }
 
+/**
+ * Another uploaded CV, kept with everything that makes its look: a template
+ * CVs can follow instead of the original's design. Its files (layout, fonts,
+ * page renders, backgrounds) are stored under its id.
+ */
+export interface Template {
+  id: string;
+  design: DesignSpec;
+  /** What that CV said, in its own sections. */
+  library: CareerLibrary;
+  /** Its content exactly as extracted, for its exact replica. */
+  original: CvDocumentData;
+  source: SourceMeta;
+}
+
+/** A design a CV can follow, as the app lists them: the original's (id null) and each template. */
+export interface TemplateSummary {
+  id: string | null;
+  fileName: string;
+  uploadedAt: string;
+  pageCount: number;
+}
+
 export interface Store {
   version: number;
   library: CareerLibrary | null;
+  /** Other uploaded CVs whose designs CVs can follow. */
+  templates?: Template[];
   /** Absent until the owner first saves their profile. */
   profile?: Profile | null;
   design: DesignSpec | null;
@@ -692,6 +723,8 @@ export interface Store {
 export interface CvSummary {
   id: string;
   name: string;
+  /** The file whose design it follows, when that is not the original. */
+  template?: string;
   jobTitle?: string;
   company?: string;
   createdAt: string;
@@ -702,6 +735,8 @@ export interface CvSummary {
 /** Everything the app shell needs to render. */
 export interface AppStateResponse {
   library: CareerLibrary | null;
+  /** The designs a CV can follow: the original's first, then each template. */
+  templates: TemplateSummary[];
   profile: Profile | null;
   design: DesignSpec | null;
   source: SourceMeta | null;

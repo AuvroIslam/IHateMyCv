@@ -20,6 +20,10 @@ export async function getAppState(): Promise<AppStateResponse> {
     store.library && store.design ? buildBaseDocument(store.library, store.design) : null;
   return {
     library: store.library,
+    templates: [
+      ...(store.source ? [{ id: null, fileName: store.source.fileName, uploadedAt: store.source.uploadedAt, pageCount: store.source.pageCount }] : []),
+      ...(store.templates ?? []).map((t) => ({ id: t.id, fileName: t.source.fileName, uploadedAt: t.source.uploadedAt, pageCount: t.source.pageCount })),
+    ],
     profile: store.profile ?? null,
     design: store.design,
     source: store.source,
@@ -28,9 +32,10 @@ export async function getAppState(): Promise<AppStateResponse> {
     account: account ? { email: account.email, name: account.name } : null,
     baseDocument,
     originalDocument: store.original ?? baseDocument,
-    cvs: store.cvs.map(({ id, name, jobTitle, company, createdAt, updatedAt, report }) => ({
+    cvs: store.cvs.map(({ id, name, jobTitle, company, createdAt, updatedAt, report, templateId }) => ({
       id,
       name,
+      template: templateId ? store.templates?.find((t) => t.id === templateId)?.source.fileName : undefined,
       jobTitle,
       company,
       createdAt,

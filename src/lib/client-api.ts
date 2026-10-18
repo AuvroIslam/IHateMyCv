@@ -2,6 +2,7 @@
 
 import type {
   Profile,
+  SourceMeta,
   AppStateResponse,
   CareerLibrary,
   ChatTurn,
@@ -62,26 +63,36 @@ export const api = {
       { method: 'POST', body: JSON.stringify(body) },
     ),
 
-  getSourceLayout: () => call<{ layout: SourceLayout }>('/api/source/layout'),
+  getSourceLayout: (template?: string) =>
+    call<{ layout: SourceLayout }>(`/api/source/layout${template ? `?template=${encodeURIComponent(template)}` : ''}`),
 
   resetEverything: () => call<{ ok: true }>('/api/library', { method: 'DELETE' }),
 
+  /** Reads an upload. With `asTemplate`, it becomes a new CV in its own design and `cvId` names it. */
   extract: (body: unknown) =>
-    call<{ design: DesignSpec; library: CareerLibrary; stats: Record<string, number> }>(
+    call<{ design: DesignSpec; library: CareerLibrary; stats: Record<string, number>; cvId?: string }>(
       '/api/extract',
       { method: 'POST', body: JSON.stringify(body) },
     ),
 
-  tailor: (jobDescription: string) =>
+  /** `templateId`: the uploaded CV whose design to follow; null or absent for the original's. */
+  tailor: (jobDescription: string, templateId?: string | null) =>
     call<{ cv: SavedCv }>('/api/tailor', {
       method: 'POST',
-      body: JSON.stringify({ jobDescription }),
+      body: JSON.stringify({ jobDescription, templateId }),
     }),
 
+  saveTemplateDesign: (id: string, design: DesignSpec) =>
+    call<{ ok: true }>(`/api/templates/${id}`, { method: 'PUT', body: JSON.stringify({ design }) }),
+
   getCv: (id: string) =>
-    call<{ cv: SavedCv; design: DesignSpec | null; library: CareerLibrary | null }>(
-      `/api/cvs/${id}`,
-    ),
+    call<{
+      cv: SavedCv;
+      design: DesignSpec | null;
+      library: CareerLibrary | null;
+      /** The template it follows, when not the original's design. */
+      template: { id: string; source: SourceMeta; original: CvDocumentData } | null;
+    }>(`/api/cvs/${id}`),
 
   saveCv: (id: string, body: { data?: CvDocumentData; name?: string; chat?: ChatTurn[] }) =>
     call<{ cv: SavedCv }>(`/api/cvs/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
