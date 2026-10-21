@@ -52,3 +52,6 @@ next-env.d.ts
 # Firebase service account keys: never commit
 *firebase-adminsdk*.json
 *service-account*.json
+
+# Launch video output
+brag-output/

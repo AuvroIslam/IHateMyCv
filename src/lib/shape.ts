@@ -27,7 +27,9 @@ export function shapeLike(entry: RenderedEntry, siblings: RenderedEntry[]): Rend
   if (!siblings.length) return entry;
   const uses = (pick: (e: RenderedEntry) => unknown) => siblings.some((s) => Boolean(pick(s)));
   const labels: string[] = [];
-  for (const s of siblings) {
+  // The sibling with the most links sets the order ("Github • Live Link").
+  const byLinks = [...siblings].sort((a, b) => (b.links?.length ?? 0) - (a.links?.length ?? 0));
+  for (const s of byLinks) {
     for (const l of s.links ?? []) if (l.label.trim() && !labels.some((x) => norm(x) === norm(l.label))) labels.push(l.label);
   }
   const own = entry.links ?? [];

@@ -80,7 +80,21 @@ async function writeStoreRaw(dir: string, store: Store): Promise<void> {
   const target = files(dir).store;
   const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
   await fs.writeFile(tmp, JSON.stringify(store, null, 2), 'utf8');
-  await fs.rename(tmp, target);
+  // Windows refuses to replace a file another request is reading at that
+  // moment (EPERM/EBUSY); the read is brief, so try again shortly.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await fs.rename(tmp, target);
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (attempt >= 8 || (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES')) {
+        await fs.rm(tmp, { force: true });
+        throw err;
+      }
+      await new Promise((r) => setTimeout(r, 25 * (attempt + 1)));
+    }
+  }
 }
 
 /** Read-modify-write under the workspace's lock. */

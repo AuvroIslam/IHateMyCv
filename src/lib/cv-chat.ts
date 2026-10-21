@@ -158,7 +158,8 @@ export const EDIT_TOOLS = {
     schema: z.object({ libraryId: z.string(), position }),
   },
   add_entry: {
-    description: 'Add a brand-new entry from facts the user gave in the chat.',
+    description:
+      'Add a brand-new entry from facts the user gave in the chat. Links the user gives (GitHub, a live site, a demo...) go in links, never written into bullets; the entry then shows them like its section does (e.g. "Github • Live Link").',
     schema: z.object({
       sectionId: z.string(),
       title: z.string(),
@@ -166,6 +167,9 @@ export const EDIT_TOOLS = {
       date: z.string().optional(),
       location: z.string().optional(),
       bullets: z.array(z.string()),
+      links: z
+        .array(z.object({ label: z.string().describe('e.g. "Github", "Live Link"'), url: z.string() }))
+        .optional(),
       position,
     }),
   },
@@ -403,7 +407,16 @@ export function applyEdit(
     }
 
     case 'add_entry': {
-      const a = args as { sectionId: string; title: string; subtitle?: string; date?: string; location?: string; bullets: string[]; position?: number };
+      const a = args as {
+        sectionId: string;
+        title: string;
+        subtitle?: string;
+        date?: string;
+        location?: string;
+        bullets: string[];
+        links?: { label: string; url: string }[];
+        position?: number;
+      };
       const s = data.sections.find((y) => y.sectionId === a.sectionId);
       if (!s) return { ok: false, message: `No section ${a.sectionId} on this CV.` };
       const entry: RenderedEntry = {
@@ -411,11 +424,20 @@ export function applyEdit(
         subtitle: a.subtitle?.trim() || undefined,
         dateText: a.date?.trim() || undefined,
         location: a.location?.trim() || undefined,
-        links: [],
+        links: (a.links ?? [])
+          .map((l) => ({ label: l.label.trim(), url: withScheme(l.url.trim()) }))
+          .filter((l) => l.url),
         bullets: a.bullets.map((b) => b.trim()).filter(Boolean),
       };
-      place(s.entries, entry, a.position);
-      return { ok: true, message: 'Entry added.', change: `Added ${label(entry)}` };
+      // Shaped like the section's other entries, as anything brought in from My Info is.
+      const shaped = shapeLike(entry, s.entries);
+      place(s.entries, shaped, a.position);
+      const blanks = (shaped.links ?? []).filter((l) => l.blank).map((l) => l.label);
+      return {
+        ok: true,
+        message: `Entry added.${blanks.length ? ` It has no ${blanks.join(' or ')} link; ask the user for it or they can add it on the Edit tab.` : ''}`,
+        change: `Added ${label(shaped)}`,
+      };
     }
 
     case 'set_style': {
@@ -518,4 +540,10 @@ export function turnPrompt(view: DocView, request: string, pages: { now?: number
   ]
     .filter((x) => x !== '')
     .join('\n');
+}
+
+/** "ihatemycv.com" as a link people can open. */
+function withScheme(url: string): string {
+  if (!url || /^(https?:|mailto:)/i.test(url)) return url;
+  return `https://${url.replace(/^\/+/, '')}`;
 }
