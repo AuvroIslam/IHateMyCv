@@ -1,7 +1,42 @@
 # I Hate My CV
 
-Upload your CV once, build a Career Library, and generate a tailored CV for every job without
-redesigning it from scratch.
+**Edit your CV by just asking.** Upload the CV you already have, change it in plain words, and
+tailor it to any job in seconds.
+
+**Try it free: [ihatemycv.com](https://ihatemycv.com)**
+
+It's early days, so bug reports and suggestions are very welcome:
+[open an issue](https://github.com/AuvroIslam/IHateMyCv/issues).
+
+![Edit your CV by just asking](docs/readme/1-overview.jpg)
+
+## What it does
+
+**Your CV, exactly as it looks.** Upload a PDF and get the same fonts, layout and design back,
+ready to edit. Nothing to rebuild.
+
+![Your CV, exactly as it looks](docs/readme/2-exact.jpg)
+
+**Just say what to change.** Add a project, drop one, reword a bullet. Every line, gap and
+position stays in place. New entries take the shape of the ones around them, links included.
+
+![Just say what to change](docs/readme/3-chat.jpg)
+
+**Change the look in one sentence.** Colours, headings, links: ask for it and the whole CV
+follows.
+
+![Change the look in one sentence](docs/readme/4-colours.jpg)
+
+**A CV for every job.** Paste a job description and get an ATS-friendly CV with your most
+relevant work first, plus an honest list of what the job asks for that you are still missing.
+Everything you have done lives in **My Info**, ready to bring into any CV.
+
+![A CV for every job](docs/readme/5-tailor.jpg)
+
+## Contributing
+
+Issues and pull requests are welcome. The sections below cover running it locally and how it
+works.
 
 ## Running it
 
