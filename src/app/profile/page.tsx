@@ -192,7 +192,9 @@ export default function MyInfoPage() {
                   onDelete={() => setEntries((all) => all.filter((e) => e.id !== entry.id))}
                 />
               ))}
-              <Button onClick={() => add(kind.kind)}>Add a {kind.one}</Button>
+              <Button onClick={() => add(kind.kind)}>
+                Add {/^[aeiou]/i.test(kind.one) ? 'an' : 'a'} {kind.one}
+              </Button>
             </div>
           )}
 

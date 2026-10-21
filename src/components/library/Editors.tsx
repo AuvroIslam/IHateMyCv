@@ -116,11 +116,15 @@ export function EntryCard({
               {entry.title || <span className="text-subtle">Untitled</span>}
             </span>
             <span className="mt-0.5 block truncate text-xs text-subtle">
-              {[entry.subtitle, entry.dateText].filter(Boolean).join(' · ') || 'No details yet'}
+              {[entry.subtitle, entry.dateText].filter(Boolean).join(' · ') ||
+                entry.bullets.find((x) => x.text.trim())?.text ||
+                'No details yet'}
             </span>
           </button>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <Badge>{entry.bullets.length} bullets</Badge>
+            <Badge>
+              {entry.bullets.length} {entry.bullets.length === 1 ? 'bullet' : 'bullets'}
+            </Badge>
             {entry.archived && <Badge tone="warn">Archived</Badge>}
             {entry.tags.slice(0, 4).map((tag) => (
               <span key={tag} className="text-[11px] text-subtle">
