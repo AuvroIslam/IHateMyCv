@@ -25,7 +25,7 @@ export const PLANS: Record<PlanId, Plan> = {
     name: 'Free',
     price: 0,
     blurb: 'Try it on your own CV.',
-    monthly: { upload: 2, tailor: 3, chat: 30, import: 5 },
+    monthly: { upload: 8, tailor: 40, chat: 300, import: 30 },
   },
   pro: {
     id: 'pro',
@@ -44,6 +44,18 @@ export const PLANS: Record<PlanId, Plan> = {
 };
 
 export const PLAN_ORDER: PlanId[] = ['free', 'pro', 'power'];
+
+/**
+ * Launch offer: until paid plans open, the Free plan gets Pro's monthly
+ * allowances. On unless NEXT_PUBLIC_LAUNCH_PROMO=off (set it on Render and
+ * redeploy to end the offer; Free then goes back to its own allowances).
+ */
+export const LAUNCH_PROMO = process.env.NEXT_PUBLIC_LAUNCH_PROMO !== 'off';
+
+/** What a plan allows a month, launch offer included. */
+export function monthlyLimits(plan: PlanId): Record<UsageKind, number> {
+  return plan === 'free' && LAUNCH_PROMO ? PLANS.pro.monthly : PLANS[plan].monthly;
+}
 
 export const USAGE_LABEL: Record<UsageKind, { one: string; many: string }> = {
   upload: { one: 'CV upload', many: 'CV uploads' },
