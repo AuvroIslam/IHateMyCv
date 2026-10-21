@@ -1,5 +1,6 @@
 'use client';
 
+import { LogoMark } from '@/components/Logo';
 import {
   GoogleAuthProvider,
   createUserWithEmailAndPassword,
@@ -82,6 +83,7 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto max-w-sm px-5 py-16">
+      <LogoMark className="mb-5 size-14" title="I Hate My CV" />
       <h1 className="text-2xl font-semibold tracking-tight">{mode === 'signin' ? 'Sign in' : 'Create your account'}</h1>
       <p className="mt-2 text-sm text-subtle">
         Your information and CVs are private to your account and follow you to any device.

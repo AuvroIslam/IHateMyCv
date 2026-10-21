@@ -70,6 +70,9 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Everything but Next's own static files.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|fonts/|pdf.worker).*)'],
+  // Everything but static files: Next's own, the icons and share images
+  // (link previews and browsers fetch them without signing in), and public/.
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|icon.svg|apple-icon|opengraph-image|twitter-image|manifest.webmanifest|brand/|fonts/|pdf.worker).*)',
+  ],
 };

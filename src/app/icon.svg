@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <style>
+    .page { fill: #16161a } .corner { fill: #c2410c } .face { fill: #f6f6f4; stroke: #f6f6f4 }
+    @media (prefers-color-scheme: dark) { .page { fill: #ededed } .corner { fill: #fb923c } .face { fill: #131315; stroke: #131315 } }
+  </style>
+  <path class="page" d="M20 6h19.5L52 18.5V52a6 6 0 0 1-6 6H20a6 6 0 0 1-6-6V12a6 6 0 0 1 6-6z"/>
+  <path class="corner" d="M39.5 6 52 18.5h-8.5a4 4 0 0 1-4-4z"/>
+  <circle class="face" cx="26.5" cy="33" r="3" stroke-width="0"/>
+  <circle class="face" cx="39.5" cy="33" r="3" stroke-width="0"/>
+  <path class="face" d="M26 47.5q7-5.5 14 0" style="fill:none" stroke-width="3.4" stroke-linecap="round"/>
+</svg>

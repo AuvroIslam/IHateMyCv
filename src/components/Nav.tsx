@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { signOutEverywhere } from '@/lib/firebase-client';
 import { PLANS } from '@/lib/plans';
 import { useApp } from './AppProvider';
+import { LogoMark } from './Logo';
 import { cx } from './ui/kit';
 
 const LINKS = [
@@ -23,7 +24,8 @@ export default function Nav() {
   return (
     <header className="no-print sticky top-0 z-20 border-b border-line bg-background/85 backdrop-blur">
       <div className="mx-auto flex max-w-[1760px] items-center gap-3 px-4 py-3 sm:gap-6 sm:px-5">
-        <Link href="/" className="shrink-0 font-semibold tracking-tight whitespace-nowrap">
+        <Link href="/" className="flex shrink-0 items-center gap-2 font-semibold tracking-tight whitespace-nowrap">
+          <LogoMark className="size-6" />
           I Hate My CV
         </Link>
 
