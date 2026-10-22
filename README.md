@@ -12,8 +12,9 @@ It's early days, so bug reports and suggestions are very welcome:
 
 ## What it does
 
-**Your CV, exactly as it looks.** Upload a PDF and get the same fonts, layout and design back,
-ready to edit. Nothing to rebuild.
+**Your CV, exactly as it looks.** Upload a PDF, or your LaTeX source (a `.tex` file or your
+Overleaf project as a `.zip`), and get the same fonts, layout and design back, ready to edit.
+Nothing to rebuild.
 
 ![Your CV, exactly as it looks](docs/readme/2-exact.jpg)
 

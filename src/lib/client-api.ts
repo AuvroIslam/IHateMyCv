@@ -100,6 +100,18 @@ export const api = {
   saveCv: (id: string, body: { data?: CvDocumentData; name?: string; chat?: ChatTurn[]; askedImport?: boolean }) =>
     call<{ cv: SavedCv }>(`/api/cvs/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
 
+  /** A LaTeX CV (.tex or a project .zip) compiled to a PDF on the server. */
+  compileLatex: async (file: File): Promise<Blob> => {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch('/api/latex', { method: 'POST', body: form });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null);
+      throw new Error(payload?.error ?? `Could not compile that LaTeX (${res.status}).`);
+    }
+    return res.blob();
+  },
+
   billing: () => call<BillingInfo>('/api/billing'),
 
   /** Where to pay for a plan: a checkout, or the billing portal when a plan is already running. */

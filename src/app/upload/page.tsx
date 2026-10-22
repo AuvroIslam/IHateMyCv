@@ -7,7 +7,11 @@ import { Button, ErrorNote, Panel, Spinner, cx } from '@/components/ui/kit';
 import { api } from '@/lib/client-api';
 import { parseUpload, toBase64 } from '@/lib/parse-client';
 
-type Stage = 'idle' | 'parsing' | 'extracting' | 'done';
+type Stage = 'idle' | 'compiling' | 'parsing' | 'extracting' | 'done';
+
+const LATEX = /\.(tex|zip)$/i;
+
+const COMPILE_STEP = { key: 'compiling', label: 'Compiling your LaTeX', detail: 'Turning your .tex into a PDF, exactly as LaTeX lays it out.' } as const;
 
 const STEPS = [
   { key: 'parsing', label: 'Reading the file', detail: 'Pulling text, positions and fonts out of your CV.' },
@@ -50,12 +54,20 @@ export default function UploadPage() {
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [fileName, setFileName] = useState('');
+  const [latex, setLatex] = useState(false);
 
   const handleFile = useCallback(
     async (file: File) => {
       setError(null);
       setFileName(file.name);
+      setLatex(LATEX.test(file.name));
       try {
+        // LaTeX is compiled to a PDF first; from there it is an upload like any other.
+        if (LATEX.test(file.name)) {
+          setStage('compiling');
+          const pdf = await api.compileLatex(file);
+          file = new File([pdf], file.name.replace(LATEX, '.pdf'), { type: 'application/pdf' });
+        }
         setStage('parsing');
         const parsed = await parseUpload(file);
         if (!parsed.textDump.trim() || parsed.rawText.trim().length < 40) {
@@ -87,7 +99,7 @@ export default function UploadPage() {
     [refresh, router],
   );
 
-  const busy = stage === 'parsing' || stage === 'extracting';
+  const busy = stage === 'compiling' || stage === 'parsing' || stage === 'extracting';
 
   return (
     <div className="mx-auto max-w-5xl px-5 py-10">
@@ -127,14 +139,16 @@ export default function UploadPage() {
           )}
         >
           <p className="text-sm font-medium">Drop your CV here</p>
-          <p className="mt-1 text-sm text-subtle">PDF, DOCX, TXT or MD — up to a few pages.</p>
+          <p className="mt-1 text-sm text-subtle">
+            PDF, DOCX, TXT, MD or LaTeX (a .tex file, or your Overleaf project as a .zip) — up to a few pages.
+          </p>
           <Button variant="primary" className="mt-5" onClick={() => inputRef.current?.click()}>
             Choose a file
           </Button>
           <input
             ref={inputRef}
             type="file"
-            accept=".pdf,.docx,.txt,.md"
+            accept=".pdf,.docx,.txt,.md,.tex,.zip"
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
@@ -143,8 +157,8 @@ export default function UploadPage() {
             }}
           />
           <p className="mt-5 text-xs text-subtle">
-            PDFs work best — they carry the font, spacing and margin information needed to reproduce
-            your design faithfully.
+            PDF and LaTeX work best — they carry the font, spacing and margin information needed to
+            reproduce your design faithfully.
           </p>
         </div>
       )}
@@ -159,8 +173,8 @@ export default function UploadPage() {
         <Panel className="mt-6 p-5">
           <p className="text-sm font-medium">{fileName}</p>
           <ol className="mt-4 space-y-3">
-            {STEPS.map((step) => {
-              const order = ['parsing', 'extracting', 'done'];
+            {[...(latex ? [COMPILE_STEP] : []), ...STEPS].map((step) => {
+              const order = ['compiling', 'parsing', 'extracting', 'done'];
               const done = order.indexOf(stage) > order.indexOf(step.key);
               const active = stage === step.key;
               return (

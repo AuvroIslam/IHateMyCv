@@ -56,6 +56,10 @@ export default function PrivacyPage() {
           OpenAI.
         </li>
         <li>
+          <strong>LaTeX-On-HTTP</strong> (YtoTech): if you upload a LaTeX CV (.tex or .zip), its files are sent there
+          to be compiled into a PDF. Nothing else goes to it.
+        </li>
+        <li>
           <strong>Lemon Squeezy</strong> (Lemon Squeezy, LLC, a Stripe company): our Merchant of Record. Processes
           payments, taxes and receipts under its own privacy policy.
         </li>
