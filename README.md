@@ -8,6 +8,10 @@ tailor it to any job in seconds.
 It's early days, so bug reports and suggestions are very welcome:
 [open an issue](https://github.com/AuvroIslam/IHateMyCv/issues).
 
+[![Watch the 2-minute demo on YouTube](docs/readme/video.jpg)](https://youtu.be/GIaaOeHJmgk)
+
+▶ [Watch the 2-minute demo on YouTube](https://youtu.be/GIaaOeHJmgk)
+
 ![Edit your CV by just asking](docs/readme/1-overview.jpg)
 
 ## What it does
